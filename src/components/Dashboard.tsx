@@ -1,9 +1,28 @@
 import { useState, useEffect } from 'react';
 import { Document } from '../lib/supabaseHelpers';
 import { supabaseHelpers } from '../lib/supabaseHelpers';
-import { Search, FileText, FileSpreadsheet, Truck, Settings, Plus, Eye, CreditCard as Edit, Copy, Upload, Trash2, Filter } from 'lucide-react';
+import { Search, FileText, FileSpreadsheet, Truck, Settings, Plus, Eye, CreditCard as Edit, Copy, Upload, Trash2, Filter, ShoppingCart, Shield } from 'lucide-react';
 import { formatCurrency, formatDate } from '../lib/documentHelpers';
 import ExcelImport from './ExcelImport';
+
+const originMeta = {
+  dashboard: {
+    label: 'Dashboard',
+    badgeClass: 'bg-slate-100 text-slate-700',
+  },
+  pos_in_store: {
+    label: 'POS In-Store',
+    badgeClass: 'bg-emerald-100 text-emerald-700',
+  },
+  pos_delivery: {
+    label: 'POS Delivery',
+    badgeClass: 'bg-orange-100 text-orange-700',
+  },
+} as const;
+
+function getDocumentTypeLabel(type: string): string {
+  return type === 'invoice' ? 'receipt' : type.replace('_', ' ');
+}
 
 type DashboardProps = {
   onCreateDocument: (type: 'quotation' | 'invoice' | 'delivery_note') => void;
@@ -11,6 +30,8 @@ type DashboardProps = {
   onEditDocument: (document: Document) => void;
   onDuplicateDocument: (document: Document) => void;
   onOpenSettings: () => void;
+  onOpenPOS: () => void;
+  onOpenAdmin?: () => void;
 };
 
 export default function Dashboard({
@@ -19,21 +40,29 @@ export default function Dashboard({
   onEditDocument,
   onDuplicateDocument,
   onOpenSettings,
+  onOpenPOS,
+  onOpenAdmin,
 }: DashboardProps) {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterOrigin, setFilterOrigin] = useState<string>('all');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
   const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [userRole, setUserRole] = useState<'admin' | 'manager' | 'sales' | null>(null);
 
   useEffect(() => {
     loadDocuments();
+    (async () => {
+      const role = await supabaseHelpers.getCurrentUserRole();
+      setUserRole(role);
+    })();
   }, []);
 
   async function loadDocuments() {
@@ -69,6 +98,21 @@ export default function Dashboard({
     }
   }
 
+  async function handleDeleteSingle(id: string) {
+    const confirmed = confirm('Delete this document? This action cannot be undone.');
+    if (!confirmed) return;
+    setDeleting(true);
+    try {
+      await supabaseHelpers.deleteDocument(id);
+      await loadDocuments();
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      alert('Failed to delete the document. You may not have permission.');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   function toggleDocumentSelection(documentId: string) {
     const newSelection = new Set(selectedDocuments);
     if (newSelection.has(documentId)) {
@@ -93,6 +137,7 @@ export default function Dashboard({
     setFilterStatus('all');
     setFilterDateFrom('');
     setFilterDateTo('');
+    setFilterOrigin('all');
   }
 
   const filteredDocuments = documents.filter((doc) => {
@@ -101,6 +146,7 @@ export default function Dashboard({
       doc.document_number.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesType = filterType === 'all' || doc.document_type === filterType;
     const matchesStatus = filterStatus === 'all' || (doc.status ?? '') === filterStatus;
+    const matchesOrigin = filterOrigin === 'all' || (doc.origin ?? 'dashboard') === filterOrigin;
     
     let matchesDateRange = true;
     if (filterDateFrom || filterDateTo) {
@@ -113,7 +159,7 @@ export default function Dashboard({
       }
     }
     
-    return matchesSearch && matchesType && matchesStatus && matchesDateRange;
+    return matchesSearch && matchesType && matchesStatus && matchesOrigin && matchesDateRange;
   });
 
   const stats = {
@@ -127,72 +173,93 @@ export default function Dashboard({
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      <div className="max-w-7xl mx-auto p-6">
+      <div className="max-w-7xl mx-auto p-4 sm:p-6">
         <header className="mb-8">
-          <div className="flex justify-between items-center mb-6">
+          <div className="flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-3 mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-slate-800">Document Manager</h1>
-              <p className="text-slate-600 mt-1">Manage your quotations, invoices, and delivery notes</p>
+              <h1 className="text-xl md:text-3xl font-bold text-slate-800">Document Manager</h1>
+              <p className="text-sm md:text-base text-slate-600 mt-1">Manage your quotations, receipts, and delivery notes</p>
             </div>
-            <button
-              onClick={onOpenSettings}
-              className="p-3 bg-white rounded-lg shadow-sm hover:shadow-md transition-all border border-slate-200 hover:border-slate-300"
-            >
-              <Settings className="w-5 h-5 text-slate-600" />
-            </button>
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+              <button
+                onClick={onOpenPOS}
+                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-sm bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors"
+                title="Enter POS Mode"
+              >
+                <ShoppingCart className="w-4 h-4 sm:w-5 sm:h-5" />
+                POS Mode
+              </button>
+              {userRole === 'admin' && (
+                <button
+                  onClick={onOpenAdmin}
+                  className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-sm bg-violet-600 text-white rounded-lg shadow-sm hover:bg-violet-700 transition-colors"
+                  title="Open Admin"
+                >
+                  <Shield className="w-4 h-4 sm:w-5 sm:h-5" />
+                  Admin
+                </button>
+              )}
+              <button
+                onClick={onOpenSettings}
+                className="p-2 sm:p-3 bg-white rounded-lg shadow-sm hover:shadow-md transition-all border border-slate-200 hover:border-slate-300"
+                title="Open Settings"
+              >
+                <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+            <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-slate-600 text-sm font-medium">Quotations</p>
-                  <p className="text-2xl font-bold text-slate-800 mt-1">{stats.quotations}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1">{stats.quotations}</p>
                 </div>
-                <div className="bg-blue-50 p-3 rounded-lg">
-                  <FileText className="w-6 h-6 text-blue-600" />
+                <div className="bg-blue-50 p-2 sm:p-3 rounded-lg">
+                  <FileText className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+            <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-slate-600 text-sm font-medium">Invoices</p>
-                  <p className="text-2xl font-bold text-slate-800 mt-1">{stats.invoices}</p>
+                  <p className="text-slate-600 text-sm font-medium">Receipts</p>
+                  <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1">{stats.invoices}</p>
                 </div>
-                <div className="bg-emerald-50 p-3 rounded-lg">
-                  <FileSpreadsheet className="w-6 h-6 text-emerald-600" />
+                <div className="bg-emerald-50 p-2 sm:p-3 rounded-lg">
+                  <FileSpreadsheet className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-600" />
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+            <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-slate-600 text-sm font-medium">Delivery Notes</p>
-                  <p className="text-2xl font-bold text-slate-800 mt-1">{stats.deliveryNotes}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1">{stats.deliveryNotes}</p>
                 </div>
-                <div className="bg-orange-50 p-3 rounded-lg">
-                  <Truck className="w-6 h-6 text-orange-600" />
+                <div className="bg-orange-50 p-2 sm:p-3 rounded-lg">
+                  <Truck className="w-5 h-5 sm:w-6 sm:h-6 text-orange-600" />
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+            <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-slate-600 text-sm font-medium">Revenue</p>
-                  <p className="text-2xl font-bold text-slate-800 mt-1">{formatCurrency(stats.totalRevenue)}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1">{formatCurrency(stats.totalRevenue)}</p>
                 </div>
-                <div className="bg-teal-50 p-3 rounded-lg">
-                  <FileSpreadsheet className="w-6 h-6 text-teal-600" />
+                <div className="bg-teal-50 p-2 sm:p-3 rounded-lg">
+                  <FileSpreadsheet className="w-5 h-5 sm:w-6 sm:h-6 text-teal-600" />
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
               <input
@@ -200,26 +267,26 @@ export default function Dashboard({
                 placeholder="Search by client name or document number..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 sm:py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
 
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center gap-2 px-4 py-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors bg-white"
+              className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors bg-white"
             >
               <Filter className="w-5 h-5" />
               Filters
-              {(filterType !== 'all' || filterStatus !== 'all' || filterDateFrom || filterDateTo) && (
+              {(filterType !== 'all' || filterStatus !== 'all' || filterOrigin !== 'all' || filterDateFrom || filterDateTo) && (
                 <span className="bg-blue-500 text-white text-xs rounded-full w-2 h-2"></span>
               )}
             </button>
 
-            {selectedDocuments.size > 0 && (
+            {selectedDocuments.size > 0 && userRole === 'admin' && (
               <button
                 onClick={handleBulkDelete}
                 disabled={deleting}
-                className="flex items-center gap-2 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Trash2 className="w-5 h-5" />
                 Delete ({selectedDocuments.size})
@@ -228,32 +295,32 @@ export default function Dashboard({
 
             <button
               onClick={() => setShowImport(true)}
-              className="flex items-center gap-2 px-6 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-all shadow-sm"
+              className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-all shadow-sm"
             >
               <Upload className="w-5 h-5" />
               Import Excel
             </button>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
               <button
                 onClick={() => onCreateDocument('quotation')}
-                className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm"
+                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm"
               >
-                <Plus className="w-5 h-5" />
+                <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
                 Quotation
               </button>
               <button
                 onClick={() => onCreateDocument('invoice')}
-                className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all shadow-sm"
+                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all shadow-sm"
               >
-                <Plus className="w-5 h-5" />
-                Invoice
+                <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+                Receipt
               </button>
               <button
                 onClick={() => onCreateDocument('delivery_note')}
-                className="flex items-center gap-2 px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all shadow-sm"
+                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all shadow-sm"
               >
-                <Plus className="w-5 h-5" />
+                <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
                 Delivery Note
               </button>
             </div>
@@ -282,7 +349,7 @@ export default function Dashboard({
                 >
                   <option value="all">All Types</option>
                   <option value="quotation">Quotations</option>
-                  <option value="invoice">Invoices</option>
+                  <option value="invoice">Receipts</option>
                   <option value="delivery_note">Delivery Notes</option>
                 </select>
               </div>
@@ -302,6 +369,19 @@ export default function Dashboard({
                 </select>
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Source</label>
+                <select
+                  value={filterOrigin}
+                  onChange={(e) => setFilterOrigin(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                >
+                  <option value="all">All Sources</option>
+                  <option value="dashboard">Dashboard</option>
+                  <option value="pos_in_store">POS In-Store</option>
+                  <option value="pos_delivery">POS Delivery</option>
+                </select>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Date From</label>
                 <input
@@ -340,8 +420,8 @@ export default function Dashboard({
             </p>
           </div>
         ) : (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            {filteredDocuments.length > 0 && (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+            {filteredDocuments.length > 0 && userRole === 'admin' && (
               <div className="px-6 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-3">
                 <input
                   type="checkbox"
@@ -358,42 +438,51 @@ export default function Dashboard({
               </div>
             )}
             
-            <table className="w-full">
+            <table className="min-w-[720px] w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  <th className="px-6 py-4 w-12"></th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  {userRole === 'admin' && (
+                    <th className="px-3 py-2 sm:px-6 sm:py-4 w-12"></th>
+                  )}
+                  <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Document
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Client
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Date
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Total
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="px-3 py-2 sm:px-6 sm:py-4 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {filteredDocuments.map((doc) => (
-                  <tr key={doc.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4">
-                      <input
-                        type="checkbox"
-                        checked={selectedDocuments.has(doc.id)}
-                        onChange={() => toggleDocumentSelection(doc.id)}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                    </td>
-                    <td className="px-6 py-4">
+                {filteredDocuments.map((doc) => {
+                  const originKey = (
+                    doc.origin === 'pos_in_store' || doc.origin === 'pos_delivery' ? doc.origin : 'dashboard'
+                  ) as keyof typeof originMeta;
+                  const originInfo = originMeta[originKey];
+                  return (
+                    <tr key={doc.id} className="hover:bg-slate-50 transition-colors">
+                    {userRole === 'admin' && (
+                      <td className="px-3 py-2 sm:px-6 sm:py-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedDocuments.has(doc.id)}
+                          onChange={() => toggleDocumentSelection(doc.id)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                      </td>
+                    )}
+                    <td className="px-3 py-2 sm:px-6 sm:py-4">
                       <div className="flex items-center gap-3">
                         <div
                           className={`p-2 rounded-lg ${
@@ -405,28 +494,31 @@ export default function Dashboard({
                           }`}
                         >
                           {doc.document_type === 'quotation' ? (
-                            <FileText className="w-5 h-5 text-blue-600" />
+                            <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
                           ) : doc.document_type === 'invoice' ? (
-                            <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                            <FileSpreadsheet className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
                           ) : (
-                            <Truck className="w-5 h-5 text-orange-600" />
+                            <Truck className="w-4 h-4 sm:w-5 sm:h-5 text-orange-600" />
                           )}
                         </div>
                         <div>
-                          <p className="font-semibold text-slate-800">{doc.document_number}</p>
-                          <p className="text-sm text-slate-500 capitalize">
-                            {doc.document_type.replace('_', ' ')}
+                          <p className="font-semibold text-slate-800 text-sm sm:text-base">{doc.document_number}</p>
+                          <p className="text-xs sm:text-sm text-slate-500 capitalize">
+                            {getDocumentTypeLabel(doc.document_type)}
                           </p>
+                          <span className={`mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium ${originInfo.badgeClass}`}>
+                            {originInfo.label}
+                          </span>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <p className="font-medium text-slate-800">{doc.client_name}</p>
-                      <p className="text-sm text-slate-500">{doc.client_email}</p>
+                    <td className="px-3 py-2 sm:px-6 sm:py-4">
+                      <p className="font-medium text-slate-800 text-sm sm:text-base">{doc.client_name}</p>
+                      <p className="text-xs sm:text-sm text-slate-500">{doc.client_email}</p>
                     </td>
-                    <td className="px-6 py-4 text-slate-700">{doc.issue_date ? formatDate(doc.issue_date) : '-'}</td>
-                    <td className="px-6 py-4 font-semibold text-slate-800">{formatCurrency(Number(doc.total))}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 py-2 sm:px-6 sm:py-4 text-slate-700 text-sm sm:text-base">{doc.issue_date ? formatDate(doc.issue_date) : '-'}</td>
+                    <td className="px-3 py-2 sm:px-6 sm:py-4 font-semibold text-slate-800 text-sm sm:text-base">{formatCurrency(Number(doc.total))}</td>
+                    <td className="px-3 py-2 sm:px-6 sm:py-4">
                       <span
                         className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
                           doc.status === 'paid'
@@ -441,33 +533,44 @@ export default function Dashboard({
                         {doc.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 py-2 sm:px-6 sm:py-4">
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => onViewDocument(doc)}
-                          className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                          className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg transition-colors"
                           title="View"
                         >
                           <Eye className="w-4 h-4 text-slate-600" />
                         </button>
                         <button
                           onClick={() => onEditDocument(doc)}
-                          className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                          className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg transition-colors"
                           title="Edit"
                         >
                           <Edit className="w-4 h-4 text-slate-600" />
                         </button>
                         <button
                           onClick={() => onDuplicateDocument(doc)}
-                          className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                          className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg transition-colors"
                           title="Duplicate"
                         >
                           <Copy className="w-4 h-4 text-slate-600" />
                         </button>
+                        {(userRole === 'manager' || userRole === 'admin') && (
+                          <button
+                            onClick={() => handleDeleteSingle(doc.id)}
+                            disabled={deleting}
+                            className="p-1.5 sm:p-2 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4 text-red-600" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                );
+                })}
               </tbody>
             </table>
           </div>

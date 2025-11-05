@@ -15,6 +15,7 @@ export type Document = {
   client_phone: string;
   client_address: string;
   client_trn: string;
+  client_emirate?: string;
   issue_date: string;
   due_date?: string;
   subtotal: number;
@@ -24,6 +25,12 @@ export type Document = {
   notes: string;
   terms: string;
   status: 'draft' | 'sent' | 'paid' | 'cancelled';
+  origin?: 'dashboard' | 'pos_in_store' | 'pos_delivery';
+  payment_method?: 'cash' | 'card' | 'both' | 'cod' | 'transfer';
+  payment_card_amount?: number;
+  payment_cash_amount?: number;
+  delivery_fee?: number;
+  delivery_provider_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -44,6 +51,7 @@ export type Client = {
   email: string;
   phone: string;
   address: string;
+  emirate?: string;
   trn: string;
   created_at: string;
   updated_at: string;

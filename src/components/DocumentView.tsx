@@ -9,25 +9,44 @@ type DocumentViewProps = {
   onBack: () => void;
   onEdit: () => void;
   onDuplicate: () => void;
+  autoPrint?: boolean;
+  onPrintComplete?: () => void;
 };
 
-export default function DocumentView({ document, onBack, onEdit, onDuplicate }: DocumentViewProps) {
+export default function DocumentView({
+  document,
+  onBack,
+  onEdit,
+  onDuplicate,
+  autoPrint = false,
+  onPrintComplete,
+}: DocumentViewProps) {
   const [items, setItems] = useState<DocumentItem[]>([]);
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
+  const [deliveryProvider, setDeliveryProvider] = useState<any | null>(null);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [hasAutoPrinted, setHasAutoPrinted] = useState(false);
 
   useEffect(() => {
+    setDataLoaded(false);
+    setHasAutoPrinted(false);
     loadData();
   }, [document.id]);
 
   async function loadData() {
     try {
-      const [itemsData, settingsData] = await Promise.all([
+      const [itemsData, settingsData, providerData] = await Promise.all([
         supabaseHelpers.getDocumentItems(document.id),
         supabaseHelpers.getCompanySettings(),
+        document.delivery_provider_id
+          ? supabaseHelpers.getDeliveryProviderById(document.delivery_provider_id)
+          : Promise.resolve(null),
       ]);
 
       setItems(itemsData);
       setCompanySettings(settingsData);
+      setDeliveryProvider(providerData);
+      setDataLoaded(true);
     } catch (error) {
       console.error('Error loading document data:', error);
     }
@@ -37,12 +56,46 @@ export default function DocumentView({ document, onBack, onEdit, onDuplicate }: 
     window.print();
   }
 
-  const documentTitle =
-    document.document_type === 'quotation'
-      ? 'QUOTATION'
-      : document.document_type === 'invoice'
-      ? 'INVOICE'
-      : 'DELIVERY NOTE';
+  useEffect(() => {
+    if (autoPrint && dataLoaded && !hasAutoPrinted) {
+      setHasAutoPrinted(true);
+      setTimeout(() => {
+        window.print();
+        onPrintComplete?.();
+      }, 200);
+    }
+  }, [autoPrint, dataLoaded, hasAutoPrinted, onPrintComplete]);
+
+  const origin = document.origin;
+  const isPOSInStore = origin === 'pos_in_store';
+  const isPOSDelivery = origin === 'pos_delivery';
+  const documentTitle = isPOSInStore
+    ? 'POS IN-STORE RECEIPT'
+    : isPOSDelivery
+    ? 'DELIVERY RECEIPT'
+    : document.document_type === 'quotation'
+    ? 'QUOTATION'
+    : document.document_type === 'invoice'
+    ? 'RECEIPT'
+    : 'DELIVERY NOTE';
+  const originLabel = isPOSInStore ? 'POS In-Store Sale' : isPOSDelivery ? 'POS Delivery' : 'Dashboard';
+
+  function getPaymentMethodLabel(method?: string | null): string {
+    switch (method) {
+      case 'cash':
+        return 'Cash';
+      case 'card':
+        return 'Card';
+      case 'both':
+        return 'Card + Cash';
+      case 'cod':
+        return 'Cash on Delivery';
+      case 'transfer':
+        return 'Bank Transfer';
+      default:
+        return method ? method.toUpperCase() : 'N/A';
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 py-8">
@@ -104,7 +157,7 @@ export default function DocumentView({ document, onBack, onEdit, onDuplicate }: 
                 <span className="font-semibold">Number:</span> {document.document_number}
               </p>
               <p className="text-slate-600 text-sm">
-            <span className="font-semibold">Date:</span> {document.issue_date ? formatDate(document.issue_date) : '-'}
+                <span className="font-semibold">Date:</span> {document.issue_date ? formatDate(document.issue_date) : '-'}
               </p>
               {document.due_date && (
                 <p className="text-slate-600 text-sm">
@@ -124,6 +177,17 @@ export default function DocumentView({ document, onBack, onEdit, onDuplicate }: 
               >
                 {(document.status ?? 'draft').toUpperCase()}
               </span>
+              <div
+                className={`mt-2 inline-block px-3 py-1 rounded-full text-xs font-medium ${
+                  isPOSInStore
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : isPOSDelivery
+                    ? 'bg-orange-100 text-orange-700'
+                    : 'bg-slate-100 text-slate-700'
+                }`}
+              >
+                {originLabel}
+              </div>
             </div>
           </div>
 
@@ -134,6 +198,7 @@ export default function DocumentView({ document, onBack, onEdit, onDuplicate }: 
             {document.client_phone && <p className="text-slate-600">{document.client_phone}</p>}
             {document.client_address && <p className="text-slate-600 whitespace-pre-line">{document.client_address}</p>}
             {document.client_trn && <p className="text-slate-600">TRN: {document.client_trn}</p>}
+            {document.client_emirate && <p className="text-slate-600">Emirate: {document.client_emirate}</p>}
           </div>
 
           <div className="mb-8">
@@ -181,14 +246,73 @@ export default function DocumentView({ document, onBack, onEdit, onDuplicate }: 
                 <span>Total:</span>
                 <span>{formatCurrency(Number(document.total))}</span>
               </div>
-            </div>
           </div>
+        </div>
 
-          {document.notes && (
-            <div className="mb-6">
-              <h3 className="text-sm font-semibold text-slate-700 mb-2 uppercase">Notes:</h3>
-              <p className="text-slate-600 whitespace-pre-line">{document.notes}</p>
-            </div>
+        {(document.payment_method || Number(document.delivery_fee) > 0 || deliveryProvider) && (
+          <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+            {document.payment_method && (
+              <div className="p-6 bg-slate-50 border border-slate-200 rounded-lg">
+                <h3 className="text-sm font-semibold text-slate-700 mb-3 uppercase">Payment Details</h3>
+                <div className="space-y-2 text-sm text-slate-700">
+                  <div className="flex justify-between">
+                    <span>Method</span>
+                    <span className="font-medium">{getPaymentMethodLabel(document.payment_method)}</span>
+                  </div>
+                  {Number(document.payment_card_amount) > 0 && (
+                    <div className="flex justify-between">
+                      <span>Card</span>
+                      <span className="font-medium">{formatCurrency(Number(document.payment_card_amount))}</span>
+                    </div>
+                  )}
+                  {Number(document.payment_cash_amount) > 0 && (
+                    <div className="flex justify-between">
+                      <span>Cash</span>
+                      <span className="font-medium">{formatCurrency(Number(document.payment_cash_amount))}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {(Number(document.delivery_fee) > 0 || deliveryProvider) && (
+              <div className="p-6 bg-slate-50 border border-slate-200 rounded-lg">
+                <h3 className="text-sm font-semibold text-slate-700 mb-3 uppercase">Delivery Details</h3>
+                <div className="space-y-2 text-sm text-slate-700">
+                  {deliveryProvider?.name && (
+                    <div className="flex justify-between">
+                      <span>Provider</span>
+                      <span className="font-medium">{deliveryProvider.name}</span>
+                    </div>
+                  )}
+                  {deliveryProvider?.phone && (
+                    <div className="flex justify-between">
+                      <span>Phone</span>
+                      <span className="font-medium">{deliveryProvider.phone}</span>
+                    </div>
+                  )}
+                  {typeof deliveryProvider?.managed === 'boolean' && (
+                    <div className="flex justify-between">
+                      <span>Status</span>
+                      <span className="font-medium">
+                        {deliveryProvider.managed ? 'Managed Provider' : 'Unmanaged Provider'}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span>Delivery Fee (ref)</span>
+                    <span className="font-medium">{formatCurrency(Number(document.delivery_fee || 0))}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {document.notes && (
+          <div className="mb-6">
+            <h3 className="text-sm font-semibold text-slate-700 mb-2 uppercase">Notes:</h3>
+            <p className="text-slate-600 whitespace-pre-line">{document.notes}</p>
+          </div>
           )}
 
           {document.terms && (

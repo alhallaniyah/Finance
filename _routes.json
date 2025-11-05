@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "include": [
+    "/*"
+  ],
+  "exclude": [
+    "/build/*",
+    "/static/*",
+    "/assets/*",
+    "/favicon.ico",
+    "/logo.png"
+  ],
+  "fallback": "/index.html"
+}

@@ -1,25 +1,37 @@
 import { supabaseHelpers } from './supabaseHelpers';
 
 export async function generateDocumentNumber(type: 'quotation' | 'invoice' | 'delivery_note'): Promise<string> {
-  const prefix = type === 'quotation' ? 'QUO' : type === 'invoice' ? 'INV' : 'DN';
-  const year = new Date().getFullYear();
+  const prefix = type === 'quotation' ? 'q' : type === 'invoice' ? 'r' : 'd';
+  const today = new Date();
+  const dateStr = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, '0'),
+    String(today.getDate()).padStart(2, '0'),
+  ].join('');
 
   try {
     const documents = await supabaseHelpers.getDocuments();
     const filteredDocs = documents
-      .filter(doc => doc.document_type === type && doc.document_number.startsWith(`${prefix}-${year}-`))
+      .filter(
+        (doc) =>
+          doc.document_type === type &&
+          doc.document_number &&
+          doc.document_number.startsWith(`${prefix}-${dateStr}`) &&
+          /^\d+$/.test(doc.document_number.slice(`${prefix}-${dateStr}`.length))
+      )
       .sort((a, b) => b.document_number.localeCompare(a.document_number));
 
     let nextNumber = 1;
     if (filteredDocs.length > 0) {
-      const lastNumber = parseInt(filteredDocs[0].document_number.split('-')[2]);
+      const suffix = filteredDocs[0].document_number.slice(`${prefix}-${dateStr}`.length);
+      const lastNumber = parseInt(suffix, 10);
       nextNumber = lastNumber + 1;
     }
 
-    return `${prefix}-${year}-${nextNumber.toString().padStart(3, '0')}`;
+    return `${prefix}-${dateStr}${nextNumber.toString().padStart(3, '0')}`;
   } catch (error) {
     console.error('Error generating document number:', error);
-    return `${prefix}-${year}-001`;
+    return `${prefix}-${dateStr}001`;
   }
 }
 

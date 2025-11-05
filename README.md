@@ -6,7 +6,7 @@ A modern, responsive web application for managing quotations, invoices, and deli
 
 ### 📋 Document Management
 - **Create & Edit**: Quotations, invoices, and delivery notes
-- **Auto-numbering**: Automatic document number generation
+- **Auto-numbering**: Automatic `q|r|d-YYYYMMDD###` document number generation per day
 - **Status Tracking**: Draft, sent, paid, cancelled statuses
 - **Duplicate Documents**: Easy document duplication
 - **Print/PDF Export**: Professional document printing
@@ -21,6 +21,7 @@ A modern, responsive web application for managing quotations, invoices, and deli
 - **Advanced Search**: Search by client name or document number
 - **Multi-filter System**: Filter by type, status, and date range
 - **Bulk Operations**: Select and delete multiple documents
+- **Receipt Sources**: Distinguish dashboard documents from POS in-store and POS delivery receipts
 
 ### 📱 Mobile Optimized
 - **Responsive Design**: Works perfectly on all device sizes
@@ -36,6 +37,13 @@ A modern, responsive web application for managing quotations, invoices, and deli
 - **Tax Configuration**: Customizable tax rates
 - **Terms & Conditions**: Default terms for documents
 - **Logo Upload**: Upload company logo files or use URLs
+
+### 🛒 POS Mode & Payments
+- **Payment Methods**: In-store sales support cash, card, or split card+cash payments with automatic cash balance calculation
+- **Delivery Payments**: Delivery orders capture COD or bank transfer payments alongside a required delivery fee reference
+- **Delivery Providers**: Built-in directory (Jeebly, Keeta, Talabat, Porter, Private Driver) with contact and manager details
+- **Managed Providers**: Flag managed couriers so customer details can be skipped while still tracking provider information
+- **Receipt Metadata**: POS receipts store payment splits, delivery fees, and provider data that surface in the dashboard, document form, and print views
 
 ## 🚀 Getting Started
 
