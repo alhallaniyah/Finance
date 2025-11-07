@@ -13,6 +13,7 @@ type Product = {
   name: string;
   sku?: string;
   price: number;
+  sell_by?: 'unit' | 'weight';
 };
 
 type CartItem = {
@@ -20,6 +21,9 @@ type CartItem = {
   name: string;
   unitPrice: number;
   quantity: number;
+  weight?: number;
+  sell_by?: 'unit' | 'weight';
+  itemId?: string;
 };
 
 type Customer = {
@@ -70,7 +74,7 @@ export default function POSMode({ onBack, onOrderSaved }: POSModeProps) {
       try {
         const items = await supabaseHelpers.getItems();
         if (items && items.length > 0) {
-          const mapped: Product[] = items.map((it: Item) => ({ id: it.id, name: it.name, sku: it.sku || undefined, price: Number(it.price || 0) }));
+          const mapped: Product[] = items.map((it: Item) => ({ id: it.id, name: it.name, sku: it.sku || undefined, price: Number(it.price || 0), sell_by: (it.sell_by as 'unit' | 'weight') || 'unit' }));
           setProducts(mapped);
         } else {
           setProducts([
@@ -124,7 +128,10 @@ export default function POSMode({ onBack, onOrderSaved }: POSModeProps) {
     return products.filter((p) => (p.name + (p.sku || '')).toLowerCase().includes(t));
   }, [products, searchTerm]);
 
-  const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+  const subtotal = cart.reduce((sum, item) => {
+    const basis = (item.sell_by === 'weight' ? (item.weight || 0) : item.quantity);
+    return sum + item.unitPrice * basis;
+  }, 0);
 
   const taxRate = Number(companySettings?.tax_rate || 0);
   const taxableBase = Math.max(subtotal - discountAmount, 0);
@@ -212,19 +219,56 @@ export default function POSMode({ onBack, onOrderSaved }: POSModeProps) {
       if (existing) {
         return prev.map((i) => (i === existing ? { ...i, quantity: i.quantity + 1 } : i));
       }
-      return [...prev, { id: crypto.randomUUID(), name: prod.name, unitPrice: prod.price, quantity: 1 }];
+      const presetSellBy: 'unit' | 'weight' = (prod.sell_by as 'unit' | 'weight') || 'unit';
+      return [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          name: prod.name,
+          unitPrice: prod.price,
+          quantity: presetSellBy === 'unit' ? 1 : 0,
+          weight: presetSellBy === 'weight' ? 0 : undefined,
+          sell_by: presetSellBy,
+          itemId: prod.id,
+        },
+      ];
     });
   }
 
-  function addCustomItem(name: string, priceStr: string, qtyStr: string) {
+  const [customSellBy, setCustomSellBy] = useState<'unit' | 'weight'>('unit');
+
+  function addCustomItem(name: string, priceStr: string, qtyStr: string, weightStr?: string) {
     const price = Number(priceStr);
     const quantity = Number(qtyStr);
-    if (!name || isNaN(price) || isNaN(quantity) || price < 0 || quantity <= 0) return;
-    setCart((prev) => [...prev, { id: crypto.randomUUID(), name, unitPrice: price, quantity }]);
+    const weight = Number(weightStr || 0);
+    const validQty = Number.isFinite(quantity) && quantity > 0;
+    const validWeight = Number.isFinite(weight) && weight > 0;
+    if (!name || isNaN(price) || price < 0) return;
+    if (customSellBy === 'unit' && !validQty) return;
+    if (customSellBy === 'weight' && !validWeight) return;
+    setCart((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        name,
+        unitPrice: price,
+        quantity: validQty ? quantity : 0,
+        weight: validWeight ? weight : 0,
+        sell_by: customSellBy,
+      },
+    ]);
   }
 
   function updateQuantity(id: string, quantity: number) {
     setCart((prev) => prev.map((i) => (i.id === id ? { ...i, quantity: Math.max(1, quantity) } : i)));
+  }
+
+  function updateWeight(id: string, weight: number) {
+    setCart((prev) => prev.map((i) => (i.id === id ? { ...i, weight: Math.max(0, weight) } : i)));
+  }
+
+  function updateSellBy(id: string, sellBy: 'unit' | 'weight') {
+    setCart((prev) => prev.map((i) => (i.id === id ? { ...i, sell_by: sellBy } : i)));
   }
 
   function removeItem(id: string) {
@@ -291,12 +335,18 @@ export default function POSMode({ onBack, onOrderSaved }: POSModeProps) {
     setError('');
     try {
       const posMode = mode === 'in_store' ? 'in-store' : 'delivery';
-      const items = cart.map((i) => ({
-        description: i.name,
-        quantity: i.quantity,
-        unit_price: i.unitPrice,
-        amount: i.unitPrice * i.quantity,
-      }));
+      const items = cart.map((i) => {
+        const basis = i.sell_by === 'weight' ? (i.weight ?? 0) : i.quantity;
+        return {
+          description: i.name,
+          quantity: i.quantity,
+          weight: i.weight ?? 0,
+          unit_price: i.unitPrice,
+          amount: i.unitPrice * basis,
+          sell_by: i.sell_by || 'unit',
+          item_id: i.itemId,
+        };
+      });
 
       const provider = selectedProvider;
       const providerManaged = mode === 'delivery' && provider?.managed;
@@ -474,6 +524,49 @@ export default function POSMode({ onBack, onOrderSaved }: POSModeProps) {
 
             <div className="border-t border-slate-200 pt-4">
               <h3 className="text-sm font-semibold text-slate-700 mb-2">Quick Add Custom Item</h3>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs text-slate-600">Sell by:</span>
+                <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setCustomSellBy('unit')}
+                    className={`px-3 py-1 text-xs ${customSellBy === 'unit' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
+                  >
+                    Unit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCustomSellBy('weight')}
+                    className={`px-3 py-1 text-xs ${customSellBy === 'weight' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
+                  >
+                    Weight
+                  </button>
+                </div>
+                {customSellBy === 'weight' && (
+                  <div className="flex items-center gap-2 ml-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const el = document.getElementById('pos-custom-weight') as HTMLInputElement;
+                        if (el) el.value = '0.5';
+                      }}
+                      className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                    >
+                      0.5 kg
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const el = document.getElementById('pos-custom-weight') as HTMLInputElement;
+                        if (el) el.value = '1';
+                      }}
+                      className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                    >
+                      1 kg
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <input
                   id="pos-custom-name"
@@ -484,22 +577,37 @@ export default function POSMode({ onBack, onOrderSaved }: POSModeProps) {
                 <input
                   id="pos-custom-price"
                   type="number"
-                  placeholder="Unit price"
+                  placeholder={customSellBy === 'weight' ? 'Price per kg' : 'Unit price'}
                   className="px-3 py-2 border border-slate-200 rounded-lg"
                 />
-                <input
-                  id="pos-custom-qty"
-                  type="number"
-                  placeholder="Qty"
-                  className="px-3 py-2 border border-slate-200 rounded-lg"
-                />
+                <div className="flex flex-col">
+                  <label htmlFor="pos-custom-qty" className="text-[10px] font-medium text-slate-600 mb-1">Quantity</label>
+                  <input
+                    id="pos-custom-qty"
+                    type="number"
+                    placeholder="Qty"
+                    disabled={customSellBy === 'weight'}
+                    className="px-3 py-2 border border-slate-200 rounded-lg"
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <label htmlFor="pos-custom-weight" className="text-[10px] font-medium text-slate-600 mb-1">Weight</label>
+                  <input
+                    id="pos-custom-weight"
+                    type="number"
+                    placeholder="kg"
+                    disabled={customSellBy === 'unit'}
+                    className="px-3 py-2 border border-slate-200 rounded-lg"
+                  />
+                </div>
               </div>
               <button
                 onClick={() => {
                   const name = (document.getElementById('pos-custom-name') as HTMLInputElement)?.value || '';
                   const price = (document.getElementById('pos-custom-price') as HTMLInputElement)?.value || '';
                   const qty = (document.getElementById('pos-custom-qty') as HTMLInputElement)?.value || '';
-                  addCustomItem(name, price, qty);
+                  const weight = (document.getElementById('pos-custom-weight') as HTMLInputElement)?.value || '';
+                  addCustomItem(name, price, qty, weight);
                 }}
                 className="mt-3 inline-flex items-center gap-2 px-3 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900"
               >
@@ -517,16 +625,73 @@ export default function POSMode({ onBack, onOrderSaved }: POSModeProps) {
                 <div key={item.id} className="flex items-center justify-between gap-3 border border-slate-200 rounded-lg p-3">
                   <div>
                     <p className="font-medium text-slate-800">{item.name}</p>
-                    <p className="text-xs text-slate-500">{item.unitPrice.toFixed(2)} each</p>
+                    <p className="text-xs text-slate-500">{item.unitPrice.toFixed(2)} {item.sell_by === 'weight' ? 'per kg' : 'each'}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={1}
-                      value={item.quantity}
-                      onChange={(e) => updateQuantity(item.id, Number(e.target.value))}
-                      className="w-20 px-3 py-2 border border-slate-200 rounded-lg"
-                    />
+                    {!item.itemId ? (
+                      <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => updateSellBy(item.id, 'unit')}
+                          className={`px-2 py-1 text-xs ${item.sell_by === 'unit' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
+                        >
+                          Unit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateSellBy(item.id, 'weight')}
+                          className={`px-2 py-1 text-xs ${item.sell_by === 'weight' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
+                        >
+                          Weight
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="px-2 py-1 text-xs rounded border border-slate-200 text-slate-700">
+                        {item.sell_by === 'weight' ? 'Weight' : 'Unit'}
+                      </span>
+                    )}
+                    {item.sell_by === 'weight' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => updateWeight(item.id, 0.5)}
+                          className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                        >
+                          0.5 kg
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateWeight(item.id, 1)}
+                          className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                        >
+                          1 kg
+                        </button>
+                      </>
+                    )}
+                    <div className="flex flex-col items-start">
+                      <label className="text-[10px] font-medium text-slate-600 mb-1">Quantity</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={item.quantity}
+                        onChange={(e) => updateQuantity(item.id, Number(e.target.value))}
+                        className="w-20 px-3 py-2 border border-slate-200 rounded-lg"
+                        disabled={item.sell_by === 'weight'}
+                      />
+                    </div>
+                    <div className="flex flex-col items-start">
+                      <label className="text-[10px] font-medium text-slate-600 mb-1">Weight</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={item.weight ?? 0}
+                        onChange={(e) => updateWeight(item.id, Number(e.target.value))}
+                        className="w-24 px-3 py-2 border border-slate-200 rounded-lg"
+                        disabled={item.sell_by === 'unit'}
+                        placeholder="kg"
+                      />
+                    </div>
                     <button
                       onClick={() => removeItem(item.id)}
                       className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50"

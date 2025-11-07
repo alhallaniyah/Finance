@@ -17,6 +17,8 @@ type FormItem = {
   id: string;
   description: string;
   quantity: number;
+  weight: number;
+  sell_by: 'unit' | 'weight';
   unit_price: number;
   amount: number;
 };
@@ -255,6 +257,8 @@ export default function DocumentForm({
               id: item.id,
               description: item.description,
               quantity: Number(item.quantity),
+              weight: Number((item as any).weight ?? 0),
+              sell_by: ((item as any).sell_by === 'weight' ? 'weight' : 'unit'),
               unit_price: Number(item.unit_price),
               amount: Number(item.amount),
             }))
@@ -339,6 +343,8 @@ export default function DocumentForm({
               id: crypto.randomUUID(),
               description: item.description,
               quantity: Number(item.quantity),
+              weight: Number((item as any).weight ?? 0),
+              sell_by: ((item as any).sell_by === 'weight' ? 'weight' : 'unit'),
               unit_price: Number(item.unit_price),
               amount: Number(item.amount),
             }))
@@ -387,6 +393,8 @@ export default function DocumentForm({
         id: crypto.randomUUID(),
         description: '',
         quantity: 1,
+        weight: 0,
+        sell_by: 'unit',
         unit_price: 0,
         amount: 0,
       },
@@ -402,8 +410,9 @@ export default function DocumentForm({
       items.map((item) => {
         if (item.id === id) {
           const updated = { ...item, [field]: value };
-          if (field === 'quantity' || field === 'unit_price') {
-            updated.amount = Number(updated.quantity) * Number(updated.unit_price);
+          if (field === 'quantity' || field === 'unit_price' || field === 'weight' || field === 'sell_by') {
+            const basis = (updated as FormItem).sell_by === 'weight' ? Number((updated as FormItem).weight) : Number((updated as FormItem).quantity);
+            (updated as FormItem).amount = basis * Number((updated as FormItem).unit_price);
           }
           return updated;
         }
@@ -601,6 +610,8 @@ export default function DocumentForm({
           document_id: documentId,
           description: item.description,
           quantity: item.quantity,
+          weight: item.weight,
+          sell_by: item.sell_by,
           unit_price: item.unit_price,
           amount: item.amount,
         });
@@ -920,7 +931,46 @@ export default function DocumentForm({
               <div className="space-y-3">
                 {items.map((item) => (
                   <div key={item.id} className="flex gap-3 items-start bg-slate-50 p-4 rounded-lg">
-                    <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-xs text-slate-600">Sell by:</span>
+                        <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => updateItem(item.id, 'sell_by', 'unit')}
+                            className={`px-3 py-1 text-xs ${item.sell_by === 'unit' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
+                          >
+                            Unit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateItem(item.id, 'sell_by', 'weight')}
+                            className={`px-3 py-1 text-xs ${item.sell_by === 'weight' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
+                          >
+                            Weight
+                          </button>
+                        </div>
+                        {item.sell_by === 'weight' && (
+                          <div className="flex items-center gap-2 ml-2">
+                            <button
+                              type="button"
+                              onClick={() => updateItem(item.id, 'weight', 0.5)}
+                              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                            >
+                              0.5 kg
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateItem(item.id, 'weight', 1)}
+                              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                            >
+                              1 kg
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
                       <div className="md:col-span-5">
                         <input
                           type="text"
@@ -939,14 +989,28 @@ export default function DocumentForm({
                           onChange={(e) => updateItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
                           min="0"
                           step="0.01"
-                          required
+                          required={item.sell_by === 'unit'}
+                          disabled={item.sell_by === 'weight'}
                           className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
                       </div>
                       <div className="md:col-span-2">
                         <input
                           type="number"
-                          placeholder="Price"
+                          placeholder="Weight"
+                          value={item.weight}
+                          onChange={(e) => updateItem(item.id, 'weight', parseFloat(e.target.value) || 0)}
+                          min="0"
+                          step="0.01"
+                          required={item.sell_by === 'weight'}
+                          disabled={item.sell_by === 'unit'}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <input
+                          type="number"
+                          placeholder={item.sell_by === 'weight' ? 'Price per kg' : 'Unit price'}
                           value={item.unit_price}
                           onChange={(e) => updateItem(item.id, 'unit_price', parseFloat(e.target.value) || 0)}
                           min="0"
@@ -962,6 +1026,7 @@ export default function DocumentForm({
                           disabled
                           className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white text-slate-600"
                         />
+                      </div>
                       </div>
                     </div>
                     <button

@@ -87,6 +87,9 @@ export type DocumentItem = {
   document_id?: string;
   description: string;
   quantity?: number;
+  weight?: number;
+  sell_by?: 'unit' | 'weight';
+  item_id?: string | null;
   unit_price?: number;
   amount?: number;
   created_at?: string;
@@ -114,6 +117,7 @@ export type Item = {
   name: string;
   sku?: string | null;
   price: number;
+  sell_by?: 'unit' | 'weight';
   created_at?: string;
   updated_at?: string;
 };
@@ -401,7 +405,7 @@ export const supabaseHelpers = {
   async createPOSOrder(
     mode: 'in-store' | 'delivery',
     customer: { id?: string; name: string; phone: string; email?: string; address?: string; trn?: string; emirate?: string },
-    items: Array<{ description: string; quantity: number; unit_price: number; amount: number }>,
+    items: Array<{ description: string; quantity: number; weight?: number; sell_by?: 'unit' | 'weight'; item_id?: string | null; unit_price: number; amount: number }>,
     options: {
       paymentMethod: 'card' | 'cash' | 'both' | 'cod' | 'transfer';
       paymentCardAmount: number;
@@ -526,6 +530,9 @@ export const supabaseHelpers = {
           document_id: invoice.id,
           description: item.description,
           quantity: item.quantity,
+          weight: item.weight ?? 0,
+          sell_by: item.sell_by ?? 'unit',
+          item_id: item.item_id ?? null,
           unit_price: item.unit_price,
           amount: item.amount,
         });
@@ -567,6 +574,9 @@ export const supabaseHelpers = {
         document_id: invoice.id,
         description: item.description,
         quantity: item.quantity,
+        weight: item.weight ?? 0,
+        sell_by: item.sell_by ?? 'unit',
+        item_id: item.item_id ?? null,
         unit_price: item.unit_price,
         amount: item.amount,
       });
@@ -602,6 +612,9 @@ export const supabaseHelpers = {
         document_id: deliveryNote.id,
         description: item.description,
         quantity: item.quantity,
+        weight: item.weight ?? 0,
+        sell_by: item.sell_by ?? 'unit',
+        item_id: item.item_id ?? null,
         unit_price: item.unit_price,
         amount: item.amount,
       });
@@ -657,22 +670,22 @@ export const supabaseHelpers = {
     return data || [];
   },
 
-  async createItem(payload: { name: string; sku?: string | null; price: number }): Promise<Item> {
+  async createItem(payload: { name: string; sku?: string | null; price: number; sell_by?: 'unit' | 'weight' }): Promise<Item> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
     const { data, error } = await supabase
       .from('items')
-      .insert({ name: payload.name, sku: payload.sku ?? null, price: payload.price, user_id: user.id })
+      .insert({ name: payload.name, sku: payload.sku ?? null, price: payload.price, sell_by: payload.sell_by ?? 'unit', user_id: user.id })
       .select('*')
       .single();
     if (error) throw error;
     return data as Item;
   },
 
-  async updateItem(id: string, updates: { name?: string; sku?: string | null; price?: number }): Promise<void> {
+  async updateItem(id: string, updates: { name?: string; sku?: string | null; price?: number; sell_by?: 'unit' | 'weight' }): Promise<void> {
     const { error } = await supabase
       .from('items')
-      .update({ name: updates.name, sku: updates.sku ?? null, price: updates.price })
+      .update({ name: updates.name, sku: updates.sku ?? null, price: updates.price, sell_by: updates.sell_by })
       .eq('id', id);
     if (error) throw error;
   },

@@ -3,6 +3,7 @@ import { Document, DocumentItem, CompanySettings } from '../lib/supabaseHelpers'
 import { supabaseHelpers } from '../lib/supabaseHelpers';
 import { ArrowLeft, CreditCard as Edit, Copy, Printer } from 'lucide-react';
 import { formatCurrency, formatDate } from '../lib/documentHelpers';
+import { generateReceipt } from '../utils/api';
 
 type DocumentViewProps = {
   document: Document;
@@ -52,19 +53,76 @@ export default function DocumentView({
     }
   }
 
-  function handlePrint() {
-    window.print();
+  function buildReceiptPayload() {
+    const itemsPayload = items.map((item) => {
+      const qty = Number(item.quantity) || 0;
+      const weight = Number((item as any).weight ?? 0) || 0;
+      const sellBy = ((item as any).sell_by === 'weight' ? 'weight' : 'unit') as 'unit' | 'weight';
+      const unitPrice = Number(item.unit_price) || 0;
+      const amount = Number(item.amount) || 0;
+      const name = `${item.description}${sellBy === 'weight' && weight > 0 ? ` (${weight} KG)` : ''}`;
+      const quantity = sellBy === 'weight' && weight > 0 ? weight : qty;
+      return {
+        name,
+        quantity,
+        unitPrice,
+        total: amount,
+      };
+    });
+
+    const paidAmount = (Number(document.payment_card_amount) || 0) + (Number(document.payment_cash_amount) || 0) || (Number(document.total) || 0);
+
+    return {
+      companyName: companySettings?.company_name || 'Company Name',
+      companyAddress: companySettings?.company_address || '',
+      companyPhone: '',
+      receiptNo: document.document_number,
+      date: document.issue_date ? formatDate(document.issue_date) : '-',
+      paymentMethod: getPaymentMethodLabel(document.payment_method),
+      items: itemsPayload,
+      subtotal: Number(document.subtotal) || 0,
+      vat: Number(document.tax_amount) || 0,
+      total: Number(document.total) || 0,
+      paidAmount,
+    };
+  }
+
+  async function handlePrint() {
+    const isPOS = document.origin === 'pos_in_store';
+    if (isPOS) {
+      try {
+        const payload = buildReceiptPayload();
+        await generateReceipt(payload);
+      } catch (e) {
+        console.error('Failed to generate POS receipt PDF, falling back to browser print.', e);
+        window.print();
+      }
+    } else {
+      window.print();
+    }
   }
 
   useEffect(() => {
     if (autoPrint && dataLoaded && !hasAutoPrinted) {
       setHasAutoPrinted(true);
-      setTimeout(() => {
-        window.print();
-        onPrintComplete?.();
+      setTimeout(async () => {
+        try {
+          const isPOS = document.origin === 'pos_in_store';
+          if (isPOS) {
+            const payload = buildReceiptPayload();
+            await generateReceipt(payload);
+          } else {
+            window.print();
+          }
+        } catch (e) {
+          console.error('Auto print failed, falling back to browser print.', e);
+          window.print();
+        } finally {
+          onPrintComplete?.();
+        }
       }, 200);
     }
-  }, [autoPrint, dataLoaded, hasAutoPrinted, onPrintComplete]);
+  }, [autoPrint, dataLoaded, hasAutoPrinted, onPrintComplete, document.origin]);
 
   const origin = document.origin;
   const isPOSInStore = origin === 'pos_in_store';
@@ -134,7 +192,7 @@ export default function DocumentView({
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 print:shadow-none print:border-0">
+        <div className={`bg-white rounded-xl shadow-sm border border-slate-200 p-12 ${isPOSInStore ? 'print:hidden' : 'print:shadow-none print:border-0'}`}>
           <div className="flex justify-between items-start mb-8">
             <div>
               {companySettings?.company_logo_url && (
@@ -207,6 +265,7 @@ export default function DocumentView({
                 <tr className="border-b-2 border-slate-300">
                   <th className="text-left py-3 text-sm font-semibold text-slate-700 uppercase">Description</th>
                   <th className="text-right py-3 text-sm font-semibold text-slate-700 uppercase">Qty</th>
+                  <th className="text-right py-3 text-sm font-semibold text-slate-700 uppercase">Weight</th>
                   <th className="text-right py-3 text-sm font-semibold text-slate-700 uppercase">Unit Price</th>
                   <th className="text-right py-3 text-sm font-semibold text-slate-700 uppercase">Amount</th>
                 </tr>
@@ -216,6 +275,7 @@ export default function DocumentView({
                   <tr key={item.id} className="border-b border-slate-200">
                     <td className="py-3 text-slate-800">{item.description}</td>
                     <td className="text-right py-3 text-slate-700">{Number(item.quantity)}</td>
+                    <td className="text-right py-3 text-slate-700">{Number((item as any).weight ?? 0)}</td>
                     <td className="text-right py-3 text-slate-700">{formatCurrency(Number(item.unit_price))}</td>
                     <td className="text-right py-3 font-semibold text-slate-800">
                       {formatCurrency(Number(item.amount))}
@@ -323,6 +383,95 @@ export default function DocumentView({
           )}
         </div>
       </div>
+      {isPOSInStore && (
+        <>
+          {/* Scoped thermal print styles for POS in-store receipts */}
+          <style>
+            {`
+            @media print {
+              @page { size: 80mm; margin: 0; }
+              html, body { width: 80mm; margin: 0; padding: 0; }
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .thermal-pos { width: 80mm; padding: 2mm; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji"; font-size: 11px; line-height: 1.25; }
+              .thermal-pos * { break-inside: avoid; page-break-inside: avoid; }
+              .thermal-line { border-top: 1px solid #000; margin: 1.5mm 0; }
+              .thermal-header { text-align: center; }
+              .thermal-header h2 { margin: 0; font-size: 12px; font-weight: 700; }
+              .thermal-header p { margin: 0; font-size: 11px; }
+              .thermal-grid-2 { display: grid; grid-template-columns: 1fr 1fr; column-gap: 2mm; }
+              .thermal-kv { display: flex; justify-content: space-between; font-size: 11px; }
+              .thermal-section-title { font-size: 11px; font-weight: 700; margin: 1mm 0; }
+              .thermal-item-row { display: grid; grid-template-columns: 1fr auto 26mm; align-items: baseline; padding: 0.5mm 0; }
+              .thermal-item-desc { margin-right: 2mm; }
+              .thermal-item-meta { white-space: nowrap; margin-right: 2mm; }
+              .thermal-amount { text-align: right; }
+              .thermal-meta, .thermal-totals { margin-top: 1mm; }
+              .thermal-footer { text-align: center; font-size: 11px; margin-top: 2mm; }
+            }
+          `}
+          </style>
+
+          {/* Print-only thermal layout */}
+          <div className="thermal-pos hidden print:block mx-auto bg-white" style={{ width: '80mm' }}>
+            <div className="thermal-header">
+              <h2>{companySettings?.company_name || 'Company Name'}</h2>
+              {companySettings?.company_address && (
+                <p>{companySettings.company_address}</p>
+              )}
+              {companySettings?.company_trn && (<p>TRN: {companySettings.company_trn}</p>)}
+            </div>
+
+            <div className="thermal-line" />
+
+            <div className="thermal-grid-2">
+              <div>
+                <div className="thermal-kv"><span>Receipt No:</span><span>{document.document_number}</span></div>
+                <div className="thermal-kv"><span>Date:</span><span>{document.issue_date ? formatDate(document.issue_date) : '-'}</span></div>
+              </div>
+              <div>
+                {document.payment_method && (
+                  <div className="thermal-kv"><span>Payment:</span><span className="uppercase">{getPaymentMethodLabel(document.payment_method)}</span></div>
+                )}
+              </div>
+            </div>
+
+            <div className="thermal-section-title">ITEMS</div>
+
+            <div>
+              {items.map((item) => {
+                const qty = Number(item.quantity) || 0;
+                const weight = Number((item as any).weight ?? 0) || 0;
+                const sellBy = ((item as any).sell_by === 'weight' ? 'weight' : 'unit') as 'unit' | 'weight';
+                const unitPrice = Number(item.unit_price) || 0;
+                const amount = Number(item.amount) || 0;
+                const desc = `${item.description}${sellBy === 'weight' && weight > 0 ? ` (${weight} KG)` : ''}`;
+                const qtyText = sellBy === 'weight' && weight > 0 ? `${weight} KG x ${formatCurrency(unitPrice)}` : `${qty} x ${formatCurrency(unitPrice)}`;
+                return (
+                  <div key={item.id} className="thermal-item-row">
+                    <div className="thermal-item-desc">{desc}</div>
+                    <div className="thermal-item-meta">{qtyText}</div>
+                    <div className="thermal-amount">{formatCurrency(amount)}</div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="thermal-meta">
+              <div className="thermal-kv"><span>Items count:</span><span>{items.length}</span></div>
+              {document.payment_method && (<div className="thermal-kv"><span>Payment:</span><span className="uppercase">{getPaymentMethodLabel(document.payment_method)}</span></div>)}
+            </div>
+
+            <div className="thermal-line" />
+
+            <div className="thermal-totals">
+              <div className="thermal-kv"><span>TOTAL:</span><span>{formatCurrency(Number(document.total) || 0)}</span></div>
+              <div className="thermal-kv"><span>Paid amount:</span><span>{formatCurrency((Number(document.payment_card_amount) || 0) + (Number(document.payment_cash_amount) || 0) || (Number(document.total) || 0))}</span></div>
+            </div>
+
+            <div className="thermal-footer">Thank you for your purchase!</div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

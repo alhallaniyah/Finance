@@ -15,12 +15,14 @@ export default function Admin({ onBack }: AdminProps) {
   const [newName, setNewName] = useState('');
   const [newSku, setNewSku] = useState('');
   const [newPrice, setNewPrice] = useState('');
+  const [newSellBy, setNewSellBy] = useState<'unit' | 'weight'>('unit');
   const [saving, setSaving] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editSku, setEditSku] = useState('');
   const [editPrice, setEditPrice] = useState('');
+  const [editSellBy, setEditSellBy] = useState<'unit' | 'weight'>('unit');
 
   // Delivery providers state
   const [providers, setProviders] = useState<DeliveryProvider[]>([]);
@@ -83,10 +85,11 @@ export default function Admin({ onBack }: AdminProps) {
     }
     setSaving(true);
     try {
-      await supabaseHelpers.createItem({ name: newName.trim(), sku: newSku.trim() || null, price: priceNum });
+      await supabaseHelpers.createItem({ name: newName.trim(), sku: newSku.trim() || null, price: priceNum, sell_by: newSellBy });
       setNewName('');
       setNewSku('');
       setNewPrice('');
+      setNewSellBy('unit');
       await loadItems();
     } catch (e: any) {
       setError(e?.message || 'Failed to add item');
@@ -100,6 +103,7 @@ export default function Admin({ onBack }: AdminProps) {
     setEditName(item.name || '');
     setEditSku(item.sku || '');
     setEditPrice(String(item.price ?? ''));
+    setEditSellBy((item.sell_by as 'unit' | 'weight') || 'unit');
   }
 
   async function saveEdit() {
@@ -115,7 +119,7 @@ export default function Admin({ onBack }: AdminProps) {
     }
     setSaving(true);
     try {
-      await supabaseHelpers.updateItem(editingId, { name: editName.trim(), sku: editSku.trim() || null, price: priceNum });
+      await supabaseHelpers.updateItem(editingId, { name: editName.trim(), sku: editSku.trim() || null, price: priceNum, sell_by: editSellBy });
       setEditingId(null);
       await loadItems();
     } catch (e: any) {
@@ -266,7 +270,7 @@ export default function Admin({ onBack }: AdminProps) {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-slate-800">Items Catalog</h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-3">
             <input
               type="text"
               placeholder="Item name"
@@ -288,6 +292,23 @@ export default function Admin({ onBack }: AdminProps) {
               onChange={(e) => setNewPrice(e.target.value)}
               className="px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-600">Sell by:</span>
+              <button
+                type="button"
+                onClick={() => setNewSellBy('unit')}
+                className={`px-2 py-1 rounded border text-xs ${newSellBy === 'unit' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}
+              >
+                Unit
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewSellBy('weight')}
+                className={`px-2 py-1 rounded border text-xs ${newSellBy === 'weight' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}
+              >
+                Weight
+              </button>
+            </div>
             <button
               onClick={handleAddItem}
               disabled={saving || !(role === 'admin' || role === 'manager')}
@@ -297,14 +318,22 @@ export default function Admin({ onBack }: AdminProps) {
               Add Item
             </button>
           </div>
+          {newSellBy === 'weight' && (
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-xs text-slate-600">Presets:</span>
+              <span className="px-2 py-1 text-xs rounded bg-slate-100 text-slate-700">0.5kg</span>
+              <span className="px-2 py-1 text-xs rounded bg-slate-100 text-slate-700">1kg</span>
+            </div>
+          )}
 
           <div className="overflow-x-auto">
-            <table className="min-w-[680px] w-full">
+            <table className="min-w-[760px] w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Name</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">SKU</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Price</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Sell By</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase">Actions</th>
                 </tr>
               </thead>
@@ -343,6 +372,35 @@ export default function Admin({ onBack }: AdminProps) {
                         />
                       ) : (
                         <span className="text-slate-800">{Number(it.price).toFixed(2)}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingId === it.id ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditSellBy('unit')}
+                            className={`px-2 py-1 rounded border text-xs ${editSellBy === 'unit' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}
+                          >
+                            Unit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditSellBy('weight')}
+                            className={`px-2 py-1 rounded border text-xs ${editSellBy === 'weight' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}
+                          >
+                            Weight
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-slate-700">{(it.sell_by as 'unit' | 'weight') === 'weight' ? 'Weight' : 'Unit'}</span>
+                      )}
+                      {editingId === it.id && editSellBy === 'weight' && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="text-xs text-slate-600">Presets:</span>
+                          <span className="px-2 py-1 text-xs rounded bg-slate-100 text-slate-700">0.5kg</span>
+                          <span className="px-2 py-1 text-xs rounded bg-slate-100 text-slate-700">1kg</span>
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3">

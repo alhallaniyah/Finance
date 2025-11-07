@@ -173,17 +173,17 @@ export default function Dashboard({
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      <div className="max-w-7xl mx-auto p-4 sm:p-6">
+      <div className="max-w-7xl mx-auto p-3 sm:p-5">
         <header className="mb-8">
-          <div className="flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-3 mb-6">
+          <div className="flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-2 mb-4">
             <div>
-              <h1 className="text-xl md:text-3xl font-bold text-slate-800">Document Manager</h1>
-              <p className="text-sm md:text-base text-slate-600 mt-1">Manage your quotations, receipts, and delivery notes</p>
+              <h1 className="text-lg md:text-2xl font-bold text-slate-800">Document Manager</h1>
+              <p className="text-xs md:text-sm text-slate-600 mt-0.5">Manage your quotations, receipts, and delivery notes</p>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
               <button
                 onClick={onOpenPOS}
-                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-sm bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors"
+                className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-1.5 text-xs sm:text-sm bg-blue-600 text-white rounded-lg shadow-sm hover:bg-blue-700 transition-colors"
                 title="Enter POS Mode"
               >
                 <ShoppingCart className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -192,7 +192,7 @@ export default function Dashboard({
               {userRole === 'admin' && (
                 <button
                   onClick={onOpenAdmin}
-                  className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 text-sm bg-violet-600 text-white rounded-lg shadow-sm hover:bg-violet-700 transition-colors"
+                  className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-1.5 text-xs sm:text-sm bg-violet-600 text-white rounded-lg shadow-sm hover:bg-violet-700 transition-colors"
                   title="Open Admin"
                 >
                   <Shield className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -201,7 +201,7 @@ export default function Dashboard({
               )}
               <button
                 onClick={onOpenSettings}
-                className="p-2 sm:p-3 bg-white rounded-lg shadow-sm hover:shadow-md transition-all border border-slate-200 hover:border-slate-300"
+                className="p-1.5 sm:p-2 bg-white rounded-lg shadow-sm hover:shadow-md transition-all border border-slate-200 hover:border-slate-300"
                 title="Open Settings"
               >
                 <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
@@ -209,51 +209,51 @@ export default function Dashboard({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4">
+            <div className="bg-white rounded-xl p-3 sm:p-4 shadow-sm border border-slate-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-slate-600 text-sm font-medium">Quotations</p>
-                  <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1">{stats.quotations}</p>
+                  <p className="text-slate-600 text-xs sm:text-sm font-medium">Quotations</p>
+                  <p className="text-lg sm:text-xl font-bold text-slate-800 mt-0.5">{stats.quotations}</p>
                 </div>
-                <div className="bg-blue-50 p-2 sm:p-3 rounded-lg">
-                  <FileText className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
+                <div className="bg-blue-50 p-1.5 sm:p-2 rounded-lg">
+                  <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200">
+            <div className="bg-white rounded-xl p-3 sm:p-4 shadow-sm border border-slate-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-slate-600 text-sm font-medium">Receipts</p>
-                  <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1">{stats.invoices}</p>
+                  <p className="text-slate-600 text-xs sm:text-sm font-medium">Receipts</p>
+                  <p className="text-lg sm:text-xl font-bold text-slate-800 mt-0.5">{stats.invoices}</p>
                 </div>
-                <div className="bg-emerald-50 p-2 sm:p-3 rounded-lg">
-                  <FileSpreadsheet className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-600" />
+                <div className="bg-emerald-50 p-1.5 sm:p-2 rounded-lg">
+                  <FileSpreadsheet className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200">
+            <div className="bg-white rounded-xl p-3 sm:p-4 shadow-sm border border-slate-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-slate-600 text-sm font-medium">Delivery Notes</p>
-                  <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1">{stats.deliveryNotes}</p>
+                  <p className="text-slate-600 text-xs sm:text-sm font-medium">Delivery Notes</p>
+                  <p className="text-lg sm:text-xl font-bold text-slate-800 mt-0.5">{stats.deliveryNotes}</p>
                 </div>
-                <div className="bg-orange-50 p-2 sm:p-3 rounded-lg">
-                  <Truck className="w-5 h-5 sm:w-6 sm:h-6 text-orange-600" />
+                <div className="bg-orange-50 p-1.5 sm:p-2 rounded-lg">
+                  <Truck className="w-4 h-4 sm:w-5 sm:h-5 text-orange-600" />
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-slate-200">
+            <div className="bg-white rounded-xl p-3 sm:p-4 shadow-sm border border-slate-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-slate-600 text-sm font-medium">Revenue</p>
-                  <p className="text-xl sm:text-2xl font-bold text-slate-800 mt-1">{formatCurrency(stats.totalRevenue)}</p>
+                  <p className="text-slate-600 text-xs sm:text-sm font-medium">Revenue</p>
+                  <p className="text-lg sm:text-xl font-bold text-slate-800 mt-0.5">{formatCurrency(stats.totalRevenue)}</p>
                 </div>
-                <div className="bg-teal-50 p-2 sm:p-3 rounded-lg">
-                  <FileSpreadsheet className="w-5 h-5 sm:w-6 sm:h-6 text-teal-600" />
+                <div className="bg-teal-50 p-1.5 sm:p-2 rounded-lg">
+                  <FileSpreadsheet className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />
                 </div>
               </div>
             </div>
@@ -261,21 +261,21 @@ export default function Dashboard({
 
           <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
             <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
               <input
                 type="text"
                 placeholder="Search by client name or document number..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 sm:py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-9 pr-3 py-2 sm:py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               />
             </div>
 
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors bg-white"
+              className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors bg-white"
             >
-              <Filter className="w-5 h-5" />
+              <Filter className="w-4 h-4 sm:w-5 sm:h-5" />
               Filters
               {(filterType !== 'all' || filterStatus !== 'all' || filterOrigin !== 'all' || filterDateFrom || filterDateTo) && (
                 <span className="bg-blue-500 text-white text-xs rounded-full w-2 h-2"></span>
@@ -286,39 +286,39 @@ export default function Dashboard({
               <button
                 onClick={handleBulkDelete}
                 disabled={deleting}
-                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Trash2 className="w-5 h-5" />
+                <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
                 Delete ({selectedDocuments.size})
               </button>
             )}
 
             <button
               onClick={() => setShowImport(true)}
-              className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-all shadow-sm"
+              className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-all shadow-sm"
             >
-              <Upload className="w-5 h-5" />
+              <Upload className="w-4 h-4 sm:w-5 sm:h-5" />
               Import Excel
             </button>
 
             <div className="flex gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
               <button
                 onClick={() => onCreateDocument('quotation')}
-                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm"
+                className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm"
               >
                 <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
                 Quotation
               </button>
               <button
                 onClick={() => onCreateDocument('invoice')}
-                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all shadow-sm"
+                className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all shadow-sm"
               >
                 <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
                 Receipt
               </button>
               <button
                 onClick={() => onCreateDocument('delivery_note')}
-                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all shadow-sm"
+                className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all shadow-sm"
               >
                 <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
                 Delivery Note

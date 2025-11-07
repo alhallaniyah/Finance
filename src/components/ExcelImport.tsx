@@ -19,7 +19,9 @@ type ImportRow = {
   issue_date: string;
   due_date?: string;
   description: string;
+  sell_by?: 'unit' | 'weight';
   quantity: number;
+  weight?: number;
   unit_price: number;
   discount?: number;
   notes?: string;
@@ -51,7 +53,9 @@ export default function ExcelImport({ onClose, onImportComplete }: ExcelImportPr
         issue_date: row.issue_date || row.date || new Date().toISOString().split('T')[0],
         due_date: row.due_date || '',
         description: row.description || row.item || '',
+        sell_by: String(row.sell_by || '').toLowerCase() === 'weight' || Number(row.weight || row.item_weight || row.wt || 0) > 0 ? 'weight' : 'unit',
         quantity: Number(row.quantity || row.qty || 1),
+        weight: Number(row.weight || row.item_weight || row.wt || 0),
         unit_price: Number(row.unit_price || row.price || 0),
         discount: Number(row.discount || 0),
         notes: row.notes || '',
@@ -114,7 +118,8 @@ export default function ExcelImport({ onClose, onImportComplete }: ExcelImportPr
           }
         }
 
-        const amount = row.quantity * row.unit_price;
+        const qtyBasis = row.sell_by === 'weight' ? (row.weight ?? 0) : row.quantity;
+        const amount = qtyBasis * row.unit_price;
         const subtotal = amount;
         const taxAmount = (subtotal * taxRate) / 100;
         const discount = row.discount || 0;
@@ -149,7 +154,9 @@ export default function ExcelImport({ onClose, onImportComplete }: ExcelImportPr
         await supabase.from('document_items').insert({
           document_id: newDoc.id,
           description: row.description,
+          sell_by: row.sell_by || 'unit',
           quantity: row.quantity,
+          weight: row.weight ?? 0,
           unit_price: row.unit_price,
           amount,
         });
@@ -218,7 +225,9 @@ export default function ExcelImport({ onClose, onImportComplete }: ExcelImportPr
                   <li><strong>issue_date</strong>: Issue date (YYYY-MM-DD)</li>
                   <li><strong>due_date</strong>: Due date (YYYY-MM-DD)</li>
                   <li><strong>description</strong>: Item description</li>
+                  <li><strong>sell_by</strong>: unit or weight (optional; defaults to unit)</li>
                   <li><strong>quantity</strong>: Item quantity</li>
+                  <li><strong>weight</strong>: Item weight (optional)</li>
                   <li><strong>unit_price</strong>: Unit price</li>
                   <li><strong>discount</strong>: Discount amount</li>
                   <li><strong>notes</strong>: Additional notes</li>
@@ -242,7 +251,9 @@ export default function ExcelImport({ onClose, onImportComplete }: ExcelImportPr
                       <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Client</th>
                       <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Date</th>
                       <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Item</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Sell By</th>
                       <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600">Qty</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600">Weight</th>
                       <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600">Price</th>
                     </tr>
                   </thead>
@@ -253,7 +264,9 @@ export default function ExcelImport({ onClose, onImportComplete }: ExcelImportPr
                         <td className="px-4 py-2 text-slate-700">{row.client_name}</td>
                         <td className="px-4 py-2 text-slate-700">{row.issue_date}</td>
                         <td className="px-4 py-2 text-slate-700">{row.description}</td>
+                        <td className="px-4 py-2 text-slate-700 capitalize">{row.sell_by || 'unit'}</td>
                         <td className="px-4 py-2 text-slate-700 text-right">{row.quantity}</td>
+                        <td className="px-4 py-2 text-slate-700 text-right">{row.weight ?? 0}</td>
                         <td className="px-4 py-2 text-slate-700 text-right">{row.unit_price}</td>
                       </tr>
                     ))}
