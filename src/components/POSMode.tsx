@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Search, Plus, Trash2, User, MapPin, Phone, Home, Package, Truck, Store, X } from 'lucide-react';
+import { ArrowLeft, Search, Plus, Trash2, User, MapPin, Phone, Home, Package, Truck, Store, X, Timer } from 'lucide-react';
 import { supabaseHelpers, CompanySettings, Item, DeliveryProvider as DBDeliveryProvider } from '../lib/supabaseHelpers';
 import { DELIVERY_PROVIDERS } from '../data/deliveryProviders';
 
 type POSModeProps = {
   onBack: () => void;
   onOrderSaved?: (documentId: string, options?: { print?: boolean }) => void;
+  onOpenKitchen?: () => void;
 };
 
 type Product = {
@@ -44,7 +45,7 @@ const EMIRATES = [
   'Fujairah',
 ];
 
-export default function POSMode({ onBack, onOrderSaved }: POSModeProps) {
+export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSModeProps) {
   const [mode, setMode] = useState<'in_store' | 'delivery'>('in_store');
   const [searchTerm, setSearchTerm] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
@@ -61,12 +62,24 @@ export default function POSMode({ onBack, onOrderSaved }: POSModeProps) {
   const [existingClients, setExistingClients] = useState<any[]>([]);
   const [clientsLoading, setClientsLoading] = useState(false);
   const [error, setError] = useState<string>('');
+  const [userRole, setUserRole] = useState<'admin' | 'manager' | 'sales' | null>(null);
 
   useEffect(() => {
     supabaseHelpers
       .getCompanySettings()
       .then(setCompanySettings)
       .catch((e) => console.error('Failed to load company settings', e));
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const role = await supabaseHelpers.getCurrentUserRole();
+        setUserRole(role);
+      } catch (e) {
+        console.warn('Failed to load user role', e);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -454,13 +467,24 @@ export default function POSMode({ onBack, onOrderSaved }: POSModeProps) {
       <div className="max-w-7xl mx-auto p-6">
         <header className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button
-              onClick={onBack}
-              className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </button>
+            {userRole === 'sales' ? (
+              <button
+                onClick={() => onOpenKitchen && onOpenKitchen()}
+                className="inline-flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg shadow-sm hover:bg-teal-700"
+                title="Go to Kitchen"
+              >
+                <Timer className="w-4 h-4" />
+                Kitchen
+              </button>
+            ) : (
+              <button
+                onClick={onBack}
+                className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back
+              </button>
+            )}
             <h1 className="text-2xl font-bold text-slate-800">POS Mode</h1>
           </div>
           <div className="flex items-center gap-2">
