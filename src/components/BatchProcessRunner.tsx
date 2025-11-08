@@ -45,9 +45,10 @@ export default function BatchProcessRunner({ batch, onBack, onFinished }: BatchP
 
   function startTimer(startIso?: string) {
     const start = startIso ? new Date(startIso).getTime() : Date.now();
+    // Clear any existing interval BEFORE setting running to avoid flipping it back to false
+    stopTimer();
     setElapsedMs(0);
     setRunning(true);
-    stopTimer();
     timerRef.current = window.setInterval(() => {
       setElapsedMs(Date.now() - start);
     }, 1000);

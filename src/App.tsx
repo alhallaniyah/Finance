@@ -16,13 +16,32 @@ import BatchValidation from './components/BatchValidation';
 type View = 'dashboard' | 'create' | 'edit' | 'view' | 'settings' | 'pos' | 'admin' | 'kitchen' | 'kitchen_form' | 'kitchen_run' | 'kitchen_validate' | 'kitchen_admin';
 
 function App() {
-  const [currentView, setCurrentView] = useState<View>('dashboard');
+  const [currentView, setCurrentView] = useState<View>(() => {
+    const saved = (typeof window !== 'undefined') ? (localStorage.getItem('app.currentView') as View | null) : null;
+    return saved || 'dashboard';
+  });
   const [documentType, setDocumentType] = useState<'quotation' | 'invoice' | 'delivery_note'>('invoice');
-  const [selectedDocument, setSelectedDocument] = useState<Doc | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<Doc | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const j = localStorage.getItem('app.selectedDocument');
+      return j ? (JSON.parse(j) as Doc) : null;
+    } catch {
+      return null;
+    }
+  });
   const [duplicateDocument, setDuplicateDocument] = useState<Doc | null>(null);
   const [autoPrintDocumentId, setAutoPrintDocumentId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<'admin' | 'manager' | 'sales' | null>(null);
-  const [selectedBatch, setSelectedBatch] = useState<KitchenBatch | null>(null);
+  const [selectedBatch, setSelectedBatch] = useState<KitchenBatch | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const j = localStorage.getItem('app.selectedBatch');
+      return j ? (JSON.parse(j) as KitchenBatch) : null;
+    } catch {
+      return null;
+    }
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -45,6 +64,43 @@ function App() {
       setCurrentView('pos');
     }
   }, [userRole, currentView]);
+
+  // Persist current view and selections so refresh stays on the same page
+  useEffect(() => {
+    try {
+      localStorage.setItem('app.currentView', currentView);
+    } catch {}
+  }, [currentView]);
+
+  useEffect(() => {
+    try {
+      if (selectedDocument) {
+        localStorage.setItem('app.selectedDocument', JSON.stringify(selectedDocument));
+      } else {
+        localStorage.removeItem('app.selectedDocument');
+      }
+    } catch {}
+  }, [selectedDocument]);
+
+  useEffect(() => {
+    try {
+      if (selectedBatch) {
+        localStorage.setItem('app.selectedBatch', JSON.stringify(selectedBatch));
+      } else {
+        localStorage.removeItem('app.selectedBatch');
+      }
+    } catch {}
+  }, [selectedBatch]);
+
+  // Guard against restoring views that require selections when none exist
+  useEffect(() => {
+    if (currentView === 'kitchen_run' && !selectedBatch) {
+      setCurrentView('kitchen');
+    }
+    if ((currentView === 'view' || currentView === 'edit') && !selectedDocument) {
+      setCurrentView(userRole === 'sales' ? 'pos' : 'dashboard');
+    }
+  }, [currentView, selectedBatch, selectedDocument, userRole]);
 
   function handleCreateDocument(type: 'quotation' | 'invoice' | 'delivery_note') {
     setDocumentType(type);

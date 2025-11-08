@@ -592,7 +592,7 @@ export const supabaseHelpers = {
     const to = from + pageSize - 1;
     const { data, error, count } = await supabase
       .from('kitchen_batches')
-      .select('*', { count: 'exact' })
+      .select('*', { count: 'planned' })
       .eq('company_id', companyId)
       .order('created_at', { ascending: false })
       .range(from, to);
