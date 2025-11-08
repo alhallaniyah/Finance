@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Document } from '../lib/supabaseHelpers';
 import { supabaseHelpers } from '../lib/supabaseHelpers';
-import { Search, FileText, FileSpreadsheet, Truck, Settings, Plus, Eye, CreditCard as Edit, Copy, Upload, Trash2, Filter, ShoppingCart, Shield } from 'lucide-react';
+import { Search, FileText, FileSpreadsheet, Truck, Settings, Plus, Eye, CreditCard as Edit, Copy, Upload, Trash2, Filter, ShoppingCart, Shield, Timer, LogOut } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 import { formatCurrency, formatDate } from '../lib/documentHelpers';
 import ExcelImport from './ExcelImport';
 
@@ -31,6 +32,8 @@ type DashboardProps = {
   onDuplicateDocument: (document: Document) => void;
   onOpenSettings: () => void;
   onOpenPOS: () => void;
+  onOpenKitchen?: () => void;
+  onOpenKitchenAdmin?: () => void;
   onOpenAdmin?: () => void;
 };
 
@@ -41,6 +44,8 @@ export default function Dashboard({
   onDuplicateDocument,
   onOpenSettings,
   onOpenPOS,
+  onOpenKitchen,
+  onOpenKitchenAdmin,
   onOpenAdmin,
 }: DashboardProps) {
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -56,6 +61,9 @@ export default function Dashboard({
   const [deleting, setDeleting] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [userRole, setUserRole] = useState<'admin' | 'manager' | 'sales' | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  const [totalCount, setTotalCount] = useState(0);
 
   useEffect(() => {
     loadDocuments();
@@ -65,17 +73,25 @@ export default function Dashboard({
     })();
   }, []);
 
-  async function loadDocuments() {
+  async function loadDocuments(page: number = currentPage) {
     setLoading(true);
     try {
-      const documents = await supabaseHelpers.getDocuments();
-      setDocuments(documents);
+      const { data, total } = await supabaseHelpers.getDocumentsPage(page, pageSize);
+      setDocuments(data);
+      setTotalCount(total);
+      setCurrentPage(page);
       setSelectedDocuments(new Set()); // Clear selections when reloading
     } catch (error) {
       console.error('Error loading documents:', error);
     }
     setLoading(false);
   }
+
+  useEffect(() => {
+    // Reload when page changes
+    loadDocuments(currentPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage]);
 
   async function handleBulkDelete() {
     if (selectedDocuments.size === 0) return;
@@ -170,6 +186,17 @@ export default function Dashboard({
       .filter((d) => d.document_type === 'invoice' && d.status === 'paid')
       .reduce((sum, d) => sum + Number(d.total), 0),
   };
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const startIndex = totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endIndex = totalCount === 0 ? 0 : Math.min(startIndex + documents.length - 1, totalCount);
+
+  async function handleSignOut() {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('Sign out failed', e);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
@@ -189,6 +216,24 @@ export default function Dashboard({
                 <ShoppingCart className="w-4 h-4 sm:w-5 sm:h-5" />
                 POS Mode
               </button>
+              <button
+                onClick={onOpenKitchen}
+                className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-1.5 text-xs sm:text-sm bg-teal-600 text-white rounded-lg shadow-sm hover:bg-teal-700 transition-colors"
+                title="Open Kitchen Stopwatch"
+              >
+                <Timer className="w-4 h-4 sm:w-5 sm:h-5" />
+                Kitchen
+              </button>
+              {userRole === 'admin' && (
+                <button
+                  onClick={onOpenKitchenAdmin}
+                  className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-1.5 text-xs sm:text-sm bg-cyan-700 text-white rounded-lg shadow-sm hover:bg-cyan-800 transition-colors"
+                  title="Open Kitchen Admin"
+                >
+                  <Timer className="w-4 h-4 sm:w-5 sm:h-5" />
+                  Kitchen Admin
+                </button>
+              )}
               {userRole === 'admin' && (
                 <button
                   onClick={onOpenAdmin}
@@ -199,12 +244,22 @@ export default function Dashboard({
                   Admin
                 </button>
               )}
+              {userRole !== 'sales' && (
+                <button
+                  onClick={onOpenSettings}
+                  className="p-1.5 sm:p-2 bg-white rounded-lg shadow-sm hover:shadow-md transition-all border border-slate-200 hover:border-slate-300"
+                  title="Open Settings"
+                >
+                  <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
+                </button>
+              )}
               <button
-                onClick={onOpenSettings}
-                className="p-1.5 sm:p-2 bg-white rounded-lg shadow-sm hover:shadow-md transition-all border border-slate-200 hover:border-slate-300"
-                title="Open Settings"
+                onClick={handleSignOut}
+                className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-1.5 text-xs sm:text-sm bg-white text-slate-700 border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50"
+                title="Sign Out"
               >
-                <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
+                <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
+                Sign Out
               </button>
             </div>
           </div>
@@ -573,6 +628,32 @@ export default function Dashboard({
                 })}
               </tbody>
             </table>
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-slate-200">
+              <div className="text-xs sm:text-sm text-slate-600">
+                {totalCount > 0
+                  ? `Showing ${startIndex}-${endIndex} of ${totalCount}`
+                  : 'No documents'}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage <= 1 || loading}
+                  className="px-3 py-1.5 text-xs sm:text-sm border border-slate-200 rounded-lg bg-white hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="text-xs sm:text-sm text-slate-600">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                  disabled={currentPage >= totalPages || loading}
+                  className="px-3 py-1.5 text-xs sm:text-sm border border-slate-200 rounded-lg bg-white hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -6,9 +6,14 @@ import DocumentView from './components/DocumentView';
 import Settings from './components/Settings';
 import POSMode from './components/POSMode.tsx';
 import Admin from './components/Admin';
-import { Document as Doc, supabaseHelpers } from './lib/supabaseHelpers';
+import { Document as Doc, supabaseHelpers, KitchenBatch } from './lib/supabaseHelpers';
+import KitchenDashboard from './components/KitchenDashboard';
+import AdminKitchenDashboard from './components/AdminKitchenDashboard';
+import BatchForm from './components/BatchForm';
+import BatchProcessRunner from './components/BatchProcessRunner';
+import BatchValidation from './components/BatchValidation';
 
-type View = 'dashboard' | 'create' | 'edit' | 'view' | 'settings' | 'pos' | 'admin';
+type View = 'dashboard' | 'create' | 'edit' | 'view' | 'settings' | 'pos' | 'admin' | 'kitchen' | 'kitchen_form' | 'kitchen_run' | 'kitchen_validate' | 'kitchen_admin';
 
 function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -17,6 +22,7 @@ function App() {
   const [duplicateDocument, setDuplicateDocument] = useState<Doc | null>(null);
   const [autoPrintDocumentId, setAutoPrintDocumentId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<'admin' | 'manager' | 'sales' | null>(null);
+  const [selectedBatch, setSelectedBatch] = useState<KitchenBatch | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -32,6 +38,13 @@ function App() {
       mounted = false;
     };
   }, []);
+
+  // Redirect sales users to POS by default and prevent dashboard access
+  useEffect(() => {
+    if (userRole === 'sales' && currentView === 'dashboard') {
+      setCurrentView('pos');
+    }
+  }, [userRole, currentView]);
 
   function handleCreateDocument(type: 'quotation' | 'invoice' | 'delivery_note') {
     setDocumentType(type);
@@ -65,10 +78,12 @@ function App() {
   }
 
   function handleBackToDashboard() {
-    setCurrentView('dashboard');
+    // Sales users should not see the main dashboard; send them to POS
+    setCurrentView(userRole === 'sales' ? 'pos' : 'dashboard');
     setSelectedDocument(null);
     setDuplicateDocument(null);
     setAutoPrintDocumentId(null);
+    setSelectedBatch(null);
   }
 
   async function handleDocumentSaved(documentId: string, options?: { print?: boolean }) {
@@ -91,7 +106,7 @@ function App() {
 
   return (
     <AuthWrapper>
-      {currentView === 'dashboard' && (
+      {currentView === 'dashboard' && userRole !== 'sales' && (
         <Dashboard
           onCreateDocument={handleCreateDocument}
           onViewDocument={handleViewDocument}
@@ -99,6 +114,8 @@ function App() {
           onDuplicateDocument={handleDuplicateDocument}
           onOpenSettings={() => setCurrentView('settings')}
           onOpenPOS={() => setCurrentView('pos')}
+          onOpenKitchen={() => setCurrentView('kitchen')}
+          onOpenKitchenAdmin={() => setCurrentView('kitchen_admin')}
           onOpenAdmin={() => setCurrentView('admin')}
         />
       )}
@@ -143,11 +160,47 @@ function App() {
       {currentView === 'settings' && <Settings onBack={handleBackToDashboard} />}
 
       {currentView === 'pos' && (
-        <POSMode onBack={handleBackToDashboard} onOrderSaved={handleDocumentSaved} />
+        <POSMode onBack={handleBackToDashboard} onOrderSaved={handleDocumentSaved} onOpenKitchen={() => setCurrentView('kitchen')} />
       )}
 
       {currentView === 'admin' && userRole === 'admin' && (
         <Admin onBack={handleBackToDashboard} />
+      )}
+
+      {currentView === 'kitchen_admin' && (userRole === 'admin') && (
+        <AdminKitchenDashboard onBack={handleBackToDashboard} />
+      )}
+
+      {currentView === 'kitchen' && (
+        <KitchenDashboard
+          onBack={handleBackToDashboard}
+          onStartNewBatch={() => setCurrentView('kitchen_form')}
+          onRunBatch={(b) => { setSelectedBatch(b); setCurrentView('kitchen_run'); }}
+          onValidateBatch={(b) => { setSelectedBatch(b); setCurrentView('kitchen_validate'); }}
+        />
+      )}
+
+      {currentView === 'kitchen_form' && (
+        <BatchForm
+          onBack={() => setCurrentView('kitchen')}
+          onCreated={(b) => { setSelectedBatch(b); setCurrentView('kitchen_run'); }}
+        />
+      )}
+
+      {currentView === 'kitchen_run' && selectedBatch && (
+        <BatchProcessRunner
+          batch={selectedBatch}
+          onBack={() => setCurrentView('kitchen')}
+          onFinished={(b) => { setSelectedBatch(b); setCurrentView('kitchen'); }}
+        />
+      )}
+
+      {currentView === 'kitchen_validate' && selectedBatch && (userRole === 'admin' || userRole === 'manager') && (
+        <BatchValidation
+          batch={selectedBatch}
+          onBack={() => setCurrentView('kitchen')}
+          onValidated={(b) => { setSelectedBatch(b); setCurrentView('kitchen'); }}
+        />
       )}
     </AuthWrapper>
   );
