@@ -227,6 +227,52 @@ export type HalwaProcessMap = {
   created_at: string;
 };
 
+// Live Show POS Module types
+export type LiveShowStatus = 'quotation' | 'advanced_paid' | 'fully_paid' | 'cancelled';
+
+export type LiveShow = {
+  id: string;
+  company_id?: string;
+  client_id: string;
+  show_number: string;
+  location?: string | null;
+  show_date?: string | null; // ISO date string (YYYY-MM-DD)
+  show_time?: string | null;
+  item_name?: string | null;
+  kg?: number | null;
+  people_count?: number | null;
+  notes?: string | null;
+  status: LiveShowStatus;
+  calendar_event_id?: string | null;
+  created_by?: string | null;
+  created_at?: string;
+};
+
+export type LiveShowQuotation = {
+  id: string;
+  company_id?: string;
+  live_show_id: string;
+  quotation_number: string;
+  total_estimated?: number | null;
+  created_by?: string | null;
+  created_at?: string;
+};
+
+export type LiveShowPaymentType = 'advance' | 'full';
+export type LiveShowPaymentMethod = 'cash' | 'transfer';
+
+export type LiveShowPayment = {
+  id: string;
+  company_id?: string;
+  live_show_id: string;
+  quotation_id?: string | null;
+  payment_type: LiveShowPaymentType;
+  amount: number;
+  method: LiveShowPaymentMethod;
+  created_by?: string | null;
+  created_at?: string;
+};
+
 export const supabaseHelpers = {
   async resolveCompanyId(): Promise<string | null> {
     const { data: { user } } = await supabase.auth.getUser();
@@ -262,6 +308,240 @@ export const supabaseHelpers = {
       return null;
     }
     return (data?.role as 'admin' | 'manager' | 'sales' | undefined) || null;
+  },
+
+  // --- Live Shows helpers ---
+  async generateLiveShowNumber(): Promise<string> {
+    const prefix = 'ls';
+    const today = new Date();
+    const dateStr = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, '0'),
+      String(today.getDate()).padStart(2, '0'),
+    ].join('');
+    try {
+      const { data, error } = await supabase
+        .from('live_shows')
+        .select('show_number');
+      if (error) throw error;
+      const rows = (data || []) as Array<{ show_number: string }>; 
+      const filtered = rows
+        .filter((r) => r.show_number && r.show_number.startsWith(`${prefix}-${dateStr}`) && /^\d+$/.test(r.show_number.slice(`${prefix}-${dateStr}`.length)))
+        .sort((a, b) => b.show_number.localeCompare(a.show_number));
+      let next = 1;
+      if (filtered.length > 0) {
+        const suffix = filtered[0].show_number.slice(`${prefix}-${dateStr}`.length);
+        const last = parseInt(suffix, 10);
+        next = (isNaN(last) ? 0 : last) + 1;
+      }
+      return `${prefix}-${dateStr}${next.toString().padStart(3, '0')}`;
+    } catch (e) {
+      console.error('Error generating live show number:', e);
+      return `ls-${dateStr}001`;
+    }
+  },
+
+  async getLiveShows(): Promise<LiveShow[]> {
+    const { data, error } = await supabase
+      .from('live_shows')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data || []) as LiveShow[];
+  },
+
+  async getLiveShowById(id: string): Promise<LiveShow | null> {
+    const { data, error } = await supabase
+      .from('live_shows')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    return (data || null) as LiveShow | null;
+  },
+
+  async getLiveShowQuotations(liveShowId: string): Promise<LiveShowQuotation[]> {
+    const { data, error } = await supabase
+      .from('live_show_quotations')
+      .select('*')
+      .eq('live_show_id', liveShowId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data || []) as LiveShowQuotation[];
+  },
+
+  async getLiveShowPayments(liveShowId: string): Promise<LiveShowPayment[]> {
+    const { data, error } = await supabase
+      .from('live_show_payments')
+      .select('*')
+      .eq('live_show_id', liveShowId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data || []) as LiveShowPayment[];
+  },
+
+  async createLiveShowAndQuotation(payload: {
+    client: { id?: string; name: string; phone?: string; email?: string; address?: string; trn?: string; emirate?: string };
+    show_date?: string;
+    show_time?: string;
+    item_name?: string;
+    kg?: number;
+    people_count?: number;
+    location?: string;
+    notes?: string;
+    estimated_total?: number;
+  }): Promise<{ show: LiveShow; quotation: LiveShowQuotation; document?: Document }> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    // Resolve or create client
+    let clientId = payload.client.id;
+    let client: Client | null = null;
+    if (clientId) {
+      const { data } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('id', clientId)
+        .maybeSingle();
+      client = (data || null) as Client | null;
+    }
+    if (!client) {
+      client = await supabaseHelpers.findOrCreateClient({
+        name: payload.client.name,
+        phone: payload.client.phone,
+        email: payload.client.email,
+        address: payload.client.address,
+        trn: payload.client.trn,
+        emirate: payload.client.emirate,
+      });
+    }
+
+    // Create live show
+    const showNumber = await supabaseHelpers.generateLiveShowNumber();
+    const { data: showRow, error: showErr } = await supabase
+      .from('live_shows')
+      .insert({
+        client_id: client.id,
+        show_number: showNumber,
+        location: payload.location || null,
+        show_date: payload.show_date || null,
+        show_time: payload.show_time || null,
+        item_name: payload.item_name || null,
+        kg: typeof payload.kg === 'number' ? payload.kg : null,
+        people_count: typeof payload.people_count === 'number' ? payload.people_count : null,
+        notes: payload.notes || null,
+        status: 'quotation',
+        created_by: user.id,
+      })
+      .select('*')
+      .single();
+    if (showErr) throw showErr;
+    const show = showRow as LiveShow;
+
+    // Create quotation record (number aligns with Document quotation for printing)
+    const estimated = Math.max(0, Number(payload.estimated_total || 0));
+
+    // Optionally create a Document 'quotation' to leverage existing print flow
+    const issueDate = new Date().toISOString().split('T')[0];
+    const settings = await supabaseHelpers.getCompanySettings();
+    const taxRate = settings?.tax_rate || 0;
+    const subtotal = estimated;
+    const taxableBase = Math.max(subtotal, 0);
+    const taxAmount = (taxableBase * taxRate) / 100;
+    const total = taxableBase + taxAmount;
+
+    const quotationNumber = await generateDocumentNumberInternal('quotation');
+    const doc = await supabaseHelpers.createDocument({
+      document_type: 'quotation',
+      document_number: quotationNumber,
+      client_id: client.id,
+      client_name: client.name,
+      client_email: client.email || '',
+      client_phone: client.phone || '',
+      client_address: client.address || '',
+      client_trn: client.trn || '',
+      client_emirate: client.emirate || '',
+      issue_date: issueDate,
+      subtotal,
+      tax_amount: taxAmount,
+      discount_amount: 0,
+      total,
+      notes: `Live Show Quotation for ${payload.item_name || 'Halwa'}${payload.people_count ? `, ${payload.people_count} people` : ''}${payload.location ? ` at ${payload.location}` : ''}${payload.show_date ? ` on ${payload.show_date}` : ''}${payload.show_time ? ` at ${payload.show_time}` : ''}`,
+      terms: settings?.default_terms || '',
+      status: 'sent',
+      origin: 'dashboard',
+      delivery_fee: 0,
+      delivery_provider_id: null,
+    });
+
+    // Add a single item line to the quotation document
+    if (subtotal > 0) {
+      await supabaseHelpers.createDocumentItem({
+        document_id: doc.id,
+        description: `Live Show: ${payload.item_name || 'Halwa'}${payload.people_count ? `, ${payload.people_count} people` : ''}`,
+        quantity: 1,
+        weight: 0,
+        sell_by: 'unit',
+        item_id: null,
+        unit_price: subtotal,
+        amount: subtotal,
+      });
+    }
+
+    const { data: qRow, error: qErr } = await supabase
+      .from('live_show_quotations')
+      .insert({
+        live_show_id: show.id,
+        quotation_number: doc.document_number,
+        total_estimated: estimated,
+        created_by: user.id,
+      })
+      .select('*')
+      .single();
+    if (qErr) throw qErr;
+    const quotation = qRow as LiveShowQuotation;
+
+    return { show, quotation, document: doc };
+  },
+
+  async recordLiveShowPayment(liveShowId: string, payment: { type: LiveShowPaymentType; amount: number; method: LiveShowPaymentMethod; quotation_id?: string | null }): Promise<LiveShowPayment> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+    const amt = Math.max(0, Number(payment.amount));
+    const { data, error } = await supabase
+      .from('live_show_payments')
+      .insert({
+        live_show_id: liveShowId,
+        quotation_id: payment.quotation_id ?? null,
+        payment_type: payment.type,
+        amount: amt,
+        method: payment.method,
+        created_by: user.id,
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+
+    // Update live show status
+    const newStatus: LiveShowStatus = payment.type === 'advance' ? 'advanced_paid' : 'fully_paid';
+    const { error: upErr } = await supabase
+      .from('live_shows')
+      .update({ status: newStatus })
+      .eq('id', liveShowId);
+    if (upErr) throw upErr;
+
+    return data as LiveShowPayment;
+  },
+
+  async cancelLiveShow(liveShowId: string, reason?: string): Promise<LiveShow> {
+    const { data, error } = await supabase
+      .from('live_shows')
+      .update({ status: 'cancelled', notes: reason || null })
+      .eq('id', liveShowId)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return data as LiveShow;
   },
 
   async getDeliveryProviderById(id: string): Promise<{ id: string; name: string; phone?: string; method?: string; managed?: boolean } | null> {

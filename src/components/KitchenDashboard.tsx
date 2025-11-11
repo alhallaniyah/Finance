@@ -130,12 +130,12 @@ export default function KitchenDashboard({ onBack, onStartNewBatch, onRunBatch, 
                     {b.status !== 'in_progress' && (
                       <button className="px-3 py-1.5 text-sm bg-slate-600 text-white rounded-lg hover:bg-slate-700 ml-2" onClick={() => onRunBatch(b)}>View</button>
                     )}
-                    {userRole === 'admin' && b.status !== 'validated' && (
+                    {(userRole === 'admin' || userRole === 'manager') && b.status !== 'validated' && (
                       <button className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 ml-2" onClick={() => onValidateBatch(b)}>
                         Validate
                       </button>
                     )}
-                    {userRole === 'admin' && b.status === 'validated' && (
+                    {(userRole === 'admin' || userRole === 'manager') && b.status === 'validated' && (
                       <div className="w-full flex flex-col items-center gap-2 mt-1">
                         <span className="inline-flex items-center gap-1 text-emerald-700 text-sm"><CheckCircle className="w-4 h-4" />Validated</span>
                         <button className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 shadow-sm" onClick={() => onValidateBatch(b)}>
