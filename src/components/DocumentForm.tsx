@@ -94,6 +94,10 @@ export default function DocumentForm({
   const [deliveryProviderPhone, setDeliveryProviderPhone] = useState('');
   const [deliveryProviderManagerPhone, setDeliveryProviderManagerPhone] = useState('');
   const [deliveryProviderManaged, setDeliveryProviderManaged] = useState(false);
+  // Live Show quotation: hide weight-related UI while keeping backend data intact
+  const isLiveShowQuotation =
+    documentType === 'quotation' &&
+    ((existingDocument?.notes || duplicateFrom?.notes || '').toLowerCase().includes('live show quotation'));
 
   function applyDeliveryProvider(provider: DeliveryProviderOption | null) {
     if (provider) {
@@ -257,8 +261,8 @@ export default function DocumentForm({
               id: item.id,
               description: item.description,
               quantity: Number(item.quantity),
-              weight: Number((item as any).weight ?? 0),
-              sell_by: ((item as any).sell_by === 'weight' ? 'weight' : 'unit'),
+              weight: isLiveShowQuotation ? 0 : Number((item as any).weight ?? 0),
+              sell_by: isLiveShowQuotation ? 'unit' : ((item as any).sell_by === 'weight' ? 'weight' : 'unit'),
               unit_price: Number(item.unit_price),
               amount: Number(item.amount),
             }))
@@ -343,8 +347,8 @@ export default function DocumentForm({
               id: crypto.randomUUID(),
               description: item.description,
               quantity: Number(item.quantity),
-              weight: Number((item as any).weight ?? 0),
-              sell_by: ((item as any).sell_by === 'weight' ? 'weight' : 'unit'),
+              weight: isLiveShowQuotation ? 0 : Number((item as any).weight ?? 0),
+              sell_by: isLiveShowQuotation ? 'unit' : ((item as any).sell_by === 'weight' ? 'weight' : 'unit'),
               unit_price: Number(item.unit_price),
               amount: Number(item.amount),
             }))
@@ -606,14 +610,17 @@ export default function DocumentForm({
       console.log('Document saved with ID:', documentId);
 
       for (const item of items) {
+        const normalized = isLiveShowQuotation
+          ? { ...item, weight: 0, sell_by: 'unit' as const }
+          : item;
         await supabaseHelpers.createDocumentItem({
           document_id: documentId,
-          description: item.description,
-          quantity: item.quantity,
-          weight: item.weight,
-          sell_by: item.sell_by,
-          unit_price: item.unit_price,
-          amount: item.amount,
+          description: normalized.description,
+          quantity: normalized.quantity,
+          weight: normalized.weight,
+          sell_by: normalized.sell_by,
+          unit_price: normalized.unit_price,
+          amount: normalized.amount,
         });
       }
 
@@ -932,43 +939,45 @@ export default function DocumentForm({
                 {items.map((item) => (
                   <div key={item.id} className="flex gap-3 items-start bg-slate-50 p-4 rounded-lg">
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="text-xs text-slate-600">Sell by:</span>
-                        <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => updateItem(item.id, 'sell_by', 'unit')}
-                            className={`px-3 py-1 text-xs ${item.sell_by === 'unit' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
-                          >
-                            Unit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateItem(item.id, 'sell_by', 'weight')}
-                            className={`px-3 py-1 text-xs ${item.sell_by === 'weight' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
-                          >
-                            Weight
-                          </button>
-                        </div>
-                        {item.sell_by === 'weight' && (
-                          <div className="flex items-center gap-2 ml-2">
+                      {!isLiveShowQuotation && (
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-xs text-slate-600">Sell by:</span>
+                          <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
                             <button
                               type="button"
-                              onClick={() => updateItem(item.id, 'weight', 0.5)}
-                              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                              onClick={() => updateItem(item.id, 'sell_by', 'unit')}
+                              className={`px-3 py-1 text-xs ${item.sell_by === 'unit' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
                             >
-                              0.5 kg
+                              Unit
                             </button>
                             <button
                               type="button"
-                              onClick={() => updateItem(item.id, 'weight', 1)}
-                              className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                              onClick={() => updateItem(item.id, 'sell_by', 'weight')}
+                              className={`px-3 py-1 text-xs ${item.sell_by === 'weight' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
                             >
-                              1 kg
+                              Weight
                             </button>
                           </div>
-                        )}
-                      </div>
+                          {item.sell_by === 'weight' && (
+                            <div className="flex items-center gap-2 ml-2">
+                              <button
+                                type="button"
+                                onClick={() => updateItem(item.id, 'weight', 0.5)}
+                                className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                              >
+                                0.5 kg
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => updateItem(item.id, 'weight', 1)}
+                                className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                              >
+                                1 kg
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
                       <div className="md:col-span-5">
@@ -990,27 +999,29 @@ export default function DocumentForm({
                           min="0"
                           step="0.01"
                           required={item.sell_by === 'unit'}
-                          disabled={item.sell_by === 'weight'}
+                          disabled={!isLiveShowQuotation && item.sell_by === 'weight'}
                           className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
                       </div>
+                      {!isLiveShowQuotation && (
+                        <div className="md:col-span-2">
+                          <input
+                            type="number"
+                            placeholder="Weight"
+                            value={item.weight}
+                            onChange={(e) => updateItem(item.id, 'weight', parseFloat(e.target.value) || 0)}
+                            min="0"
+                            step="0.01"
+                            required={item.sell_by === 'weight'}
+                            disabled={item.sell_by === 'unit'}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                        </div>
+                      )}
                       <div className="md:col-span-2">
                         <input
                           type="number"
-                          placeholder="Weight"
-                          value={item.weight}
-                          onChange={(e) => updateItem(item.id, 'weight', parseFloat(e.target.value) || 0)}
-                          min="0"
-                          step="0.01"
-                          required={item.sell_by === 'weight'}
-                          disabled={item.sell_by === 'unit'}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                      </div>
-                      <div className="md:col-span-2">
-                        <input
-                          type="number"
-                          placeholder={item.sell_by === 'weight' ? 'Price per kg' : 'Unit price'}
+                          placeholder={!isLiveShowQuotation && item.sell_by === 'weight' ? 'Price per kg' : 'Unit price'}
                           value={item.unit_price}
                           onChange={(e) => updateItem(item.id, 'unit_price', parseFloat(e.target.value) || 0)}
                           min="0"

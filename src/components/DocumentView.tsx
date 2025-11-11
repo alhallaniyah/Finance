@@ -127,6 +127,10 @@ export default function DocumentView({
   const origin = document.origin;
   const isPOSInStore = origin === 'pos_in_store';
   const isPOSDelivery = origin === 'pos_delivery';
+  const isLiveShowQuotation =
+    document.document_type === 'quotation' &&
+    typeof document.notes === 'string' &&
+    document.notes.toLowerCase().includes('live show quotation');
   const documentTitle = isPOSInStore
     ? 'POS IN-STORE RECEIPT'
     : isPOSDelivery
@@ -265,7 +269,9 @@ export default function DocumentView({
                 <tr className="border-b-2 border-slate-300">
                   <th className="text-left py-3 text-sm font-semibold text-slate-700 uppercase">Description</th>
                   <th className="text-right py-3 text-sm font-semibold text-slate-700 uppercase">Qty</th>
-                  <th className="text-right py-3 text-sm font-semibold text-slate-700 uppercase">Weight</th>
+                  {!isLiveShowQuotation && (
+                    <th className="text-right py-3 text-sm font-semibold text-slate-700 uppercase">Weight</th>
+                  )}
                   <th className="text-right py-3 text-sm font-semibold text-slate-700 uppercase">Unit Price</th>
                   <th className="text-right py-3 text-sm font-semibold text-slate-700 uppercase">Amount</th>
                 </tr>
@@ -275,7 +281,9 @@ export default function DocumentView({
                   <tr key={item.id} className="border-b border-slate-200">
                     <td className="py-3 text-slate-800">{item.description}</td>
                     <td className="text-right py-3 text-slate-700">{Number(item.quantity)}</td>
-                    <td className="text-right py-3 text-slate-700">{Number((item as any).weight ?? 0)}</td>
+                    {!isLiveShowQuotation && (
+                      <td className="text-right py-3 text-slate-700">{Number((item as any).weight ?? 0)}</td>
+                    )}
                     <td className="text-right py-3 text-slate-700">{formatCurrency(Number(item.unit_price))}</td>
                     <td className="text-right py-3 font-semibold text-slate-800">
                       {formatCurrency(Number(item.amount))}
