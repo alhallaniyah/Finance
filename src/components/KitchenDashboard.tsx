@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Timer, CheckCircle, AlertTriangle, LogOut } from 'lucide-react';
+import { ArrowLeft, Timer, CheckCircle, LogOut } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { supabaseHelpers, KitchenBatch } from '../lib/supabaseHelpers';
 

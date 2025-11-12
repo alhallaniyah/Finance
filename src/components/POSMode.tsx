@@ -52,18 +52,25 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'cash' | 'both' | 'cod' | 'transfer'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'cash' | 'both' | 'cod' | 'transfer' | 'provider'>('cash');
   const [cardPaymentAmount, setCardPaymentAmount] = useState(0);
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [providers, setProviders] = useState(DELIVERY_PROVIDERS);
   const [discountAmount, setDiscountAmount] = useState(0);
+  // Discount controls: amount or percentage
+  const [discountType, setDiscountType] = useState<'amount' | 'percentage'>('amount');
+  const [discountInput, setDiscountInput] = useState<number>(0);
   const [customer, setCustomer] = useState<Customer>({ name: '', phone: '', address: '', emirate: '' });
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [existingClients, setExistingClients] = useState<any[]>([]);
   const [clientsLoading, setClientsLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [userRole, setUserRole] = useState<'admin' | 'manager' | 'sales' | null>(null);
+  // Provider pricing editor state
+  const [showPricingModal, setShowPricingModal] = useState(false);
+  const [pricingForm, setPricingForm] = useState<Record<string, string>>({});
+  const [multiplierInput, setMultiplierInput] = useState<string>('');
 
   // Live Show fields
   const [lsItemName, setLsItemName] = useState('');
@@ -135,33 +142,112 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
       try {
         const dbProviders = await supabaseHelpers.getDeliveryProviders();
         if (dbProviders && dbProviders.length > 0) {
+          const defaultsByName = Object.fromEntries(DELIVERY_PROVIDERS.map((d) => [d.name.toLowerCase(), d]));
           const mapped = dbProviders.map((p: DBDeliveryProvider) => ({
             id: p.id,
             name: p.name,
             phone: p.phone || '',
             managerPhone: '',
             managed: Boolean(p.managed),
+            // Merge optional pricing policy from static defaults by name
+            priceMultiplier: defaultsByName[p.name.toLowerCase()]?.priceMultiplier,
+            priceOverrides: defaultsByName[p.name.toLowerCase()]?.priceOverrides,
           }));
-          setProviders(mapped as any);
+          const withLocal = (mapped as any).map((prov: any) => {
+            try {
+              const raw = localStorage.getItem(`providerPricing_${prov.id}`);
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object') {
+                  if (typeof parsed.priceMultiplier !== 'undefined') prov.priceMultiplier = Number(parsed.priceMultiplier);
+                  if (Array.isArray(parsed.overrides)) prov.priceOverrides = parsed.overrides;
+                }
+              }
+            } catch {}
+            return prov;
+          });
+          setProviders(withLocal as any);
           if (!selectedProviderId) setSelectedProviderId(mapped[0].id);
           return;
         }
         // If no DB providers, ensure at least default static ones
-        setProviders(DELIVERY_PROVIDERS);
+        const withLocalDefaults = DELIVERY_PROVIDERS.map((prov) => {
+          try {
+            const raw = localStorage.getItem(`providerPricing_${prov.id}`);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (parsed && typeof parsed === 'object') {
+                const updated: any = { ...prov };
+                if (typeof parsed.priceMultiplier !== 'undefined') updated.priceMultiplier = Number(parsed.priceMultiplier);
+                if (Array.isArray(parsed.overrides)) updated.priceOverrides = parsed.overrides;
+                return updated;
+              }
+            }
+          } catch {}
+          return prov as any;
+        });
+        setProviders(withLocalDefaults as any);
         if (!selectedProviderId && DELIVERY_PROVIDERS.length > 0) setSelectedProviderId(DELIVERY_PROVIDERS[0].id);
       } catch (e) {
         console.warn('Failed to load delivery providers; using defaults', e);
-        setProviders(DELIVERY_PROVIDERS);
+        const withLocalDefaults = DELIVERY_PROVIDERS.map((prov) => {
+          try {
+            const raw = localStorage.getItem(`providerPricing_${prov.id}`);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (parsed && typeof parsed === 'object') {
+                const updated: any = { ...prov };
+                if (typeof parsed.priceMultiplier !== 'undefined') updated.priceMultiplier = Number(parsed.priceMultiplier);
+                if (Array.isArray(parsed.overrides)) updated.priceOverrides = parsed.overrides;
+                return updated;
+              }
+            }
+          } catch {}
+          return prov as any;
+        });
+        setProviders(withLocalDefaults as any);
         if (!selectedProviderId && DELIVERY_PROVIDERS.length > 0) setSelectedProviderId(DELIVERY_PROVIDERS[0].id);
       }
     })();
   }, [selectedProviderId]);
 
+  const selectedProvider = providers.find((p) => p.id === selectedProviderId) || null;
+  // Initialize pricing form whenever provider or products change
+  useEffect(() => {
+    if (!selectedProvider) return;
+    setMultiplierInput(
+      typeof (selectedProvider as any).priceMultiplier !== 'undefined' && (selectedProvider as any).priceMultiplier !== null
+        ? String(Number((selectedProvider as any).priceMultiplier))
+        : ''
+    );
+    const overrides = (selectedProvider as any).priceOverrides || [];
+    const form: Record<string, string> = {};
+    for (const prod of products) {
+      const ov = overrides.find((o: any) => (o.itemId && o.itemId === prod.id) || (o.sku && o.sku === prod.sku));
+      form[prod.id] = typeof ov?.price !== 'undefined' ? String(Number(ov.price)) : '';
+    }
+    setPricingForm(form);
+  }, [selectedProviderId, selectedProvider, products]);
+
+  const effectiveProducts = useMemo(() => {
+    if (mode !== 'delivery' || !selectedProvider) return products;
+    const mult = Number(selectedProvider.priceMultiplier || 0);
+    const overrides = selectedProvider.priceOverrides || [];
+    return products.map((p) => {
+      let price = p.price;
+      const ov = overrides.find((o) => (o.itemId && o.itemId === p.id) || (o.sku && o.sku === p.sku));
+      if (ov) price = Number(ov.price);
+      else if (mult && mult > 0) price = Number((p.price * mult).toFixed(2));
+      return { ...p, price };
+    });
+  }, [mode, products, selectedProvider]);
+
   const filteredProducts = useMemo(() => {
     const t = searchTerm.trim().toLowerCase();
-    if (!t) return products;
-    return products.filter((p) => (p.name + (p.sku || '')).toLowerCase().includes(t));
-  }, [products, searchTerm]);
+    const source = effectiveProducts;
+    if (!t) return source;
+    return source.filter((p) => (p.name + (p.sku || '')).toLowerCase().includes(t));
+  }, [effectiveProducts, searchTerm]);
 
   const cartSubtotal = cart.reduce((sum, item) => {
     const basis = item.sell_by === 'weight'
@@ -174,8 +260,8 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
   const subtotal = mode === 'live_show' ? Math.max(0, Number(estimatedTotal || 0)) : cartSubtotal;
   const taxableBase = Math.max(subtotal - (mode === 'live_show' ? 0 : discountAmount), 0);
   const taxAmount = (taxableBase * taxRate) / 100;
-  const total = taxableBase + taxAmount;
-  const selectedProvider = providers.find((p) => p.id === selectedProviderId) || null;
+  const total = taxableBase + taxAmount + (mode === 'delivery' ? Math.max(0, Number(deliveryFee || 0)) : 0);
+  // selectedProvider defined above
 
   const cardAmount = mode === 'in_store'
     ? paymentMethod === 'card'
@@ -204,9 +290,28 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
   const deliveryPaymentOptions = [
     { value: 'cod' as const, label: 'Cash on Delivery (COD)' },
     { value: 'transfer' as const, label: 'Bank Transfer' },
+    { value: 'provider' as const, label: 'Delivery Provider' },
   ];
 
   const providerManaged = Boolean(selectedProvider?.managed);
+
+  // Derive discount amount from input and type whenever cart subtotal changes or input updates
+  useEffect(() => {
+    if (mode === 'live_show') {
+      if (discountAmount !== 0) setDiscountAmount(0);
+      return;
+    }
+    const clampSubtotal = Math.max(0, Number(subtotal || 0));
+    if (discountType === 'amount') {
+      const val = Math.max(0, Number(discountInput || 0));
+      const amt = Math.min(val, clampSubtotal);
+      if (amt !== discountAmount) setDiscountAmount(Number(amt.toFixed(2)));
+    } else {
+      const pct = Math.max(0, Math.min(Number(discountInput || 0), 100));
+      const amt = clampSubtotal * (pct / 100);
+      if (amt !== discountAmount) setDiscountAmount(Number(amt.toFixed(2)));
+    }
+  }, [mode, subtotal, discountType, discountInput]);
 
 
   useEffect(() => {
@@ -233,6 +338,15 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
       setDeliveryFee(0);
     }
   }, [mode, providerManaged, deliveryFee]);
+
+  // When provider changes in delivery mode, reprice cart items based on effective products
+  useEffect(() => {
+    if (mode !== 'delivery') return;
+    const priceMap = new Map(effectiveProducts.map((p) => [p.id, p.price]));
+    setCart((prev) =>
+      prev.map((i) => (i.itemId && priceMap.has(i.itemId) ? { ...i, unitPrice: priceMap.get(i.itemId)! } : i))
+    );
+  }, [mode, selectedProviderId, effectiveProducts]);
 
   // Load existing live shows when Live Show mode selected
   useEffect(() => {
@@ -300,7 +414,7 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
       // Link payment to the first quotation if present
       const qs = quotationsMap[selectedShowForPayment.id] || [];
       const q = qs.length > 0 ? qs[0] : null;
-      const payment = await supabaseHelpers.recordLiveShowPayment(selectedShowForPayment.id, {
+      await supabaseHelpers.recordLiveShowPayment(selectedShowForPayment.id, {
         type: paymentType,
         amount: amt,
         method: paymentMethodLS,
@@ -404,12 +518,16 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
     const validWeight = Number.isFinite(weight) && weight > 0;
     if (!name || isNaN(price) || price < 0) return;
     if (customSellBy === 'weight' && !validWeight) return;
+    const mult = mode === 'delivery' && selectedProvider?.priceMultiplier && selectedProvider.priceMultiplier > 0
+      ? Number(selectedProvider.priceMultiplier)
+      : 0;
+    const adjustedPrice = mult > 0 ? Number((price * mult).toFixed(2)) : price;
     setCart((prev) => [
       ...prev,
       {
         id: crypto.randomUUID(),
         name,
-        unitPrice: price,
+        unitPrice: adjustedPrice,
         quantity: validQty ? quantity : 1,
         weight: validWeight ? weight : 0,
         sell_by: customSellBy,
@@ -437,6 +555,43 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
     const parsed = parseFloat(value);
     const numeric = Number.isFinite(parsed) ? parsed : 0;
     setCardPaymentAmount(numeric);
+  }
+
+  function handleOverrideChange(itemId: string, value: string) {
+    setPricingForm((prev) => ({ ...prev, [itemId]: value }));
+  }
+
+  function saveProviderPricing() {
+    const provider = selectedProvider as any;
+    if (!provider) return;
+    const overridesArr = Object.entries(pricingForm)
+      .map(([itemId, val]) => {
+        const parsed = parseFloat(val);
+        if (!Number.isFinite(parsed)) return null;
+        const prod = products.find((p) => p.id === itemId);
+        return {
+          itemId,
+          sku: prod?.sku,
+          price: Number(parsed.toFixed(2)),
+        };
+      })
+      .filter(Boolean) as any[];
+    const multParsed = parseFloat(multiplierInput);
+    const payload = {
+      priceMultiplier: Number.isFinite(multParsed) ? Number(multParsed) : undefined,
+      overrides: overridesArr,
+    };
+    try {
+      localStorage.setItem(`providerPricing_${provider.id}`, JSON.stringify(payload));
+    } catch {}
+    setProviders((prev) =>
+      prev.map((p: any) =>
+        p.id === provider.id
+          ? { ...p, priceMultiplier: payload.priceMultiplier, priceOverrides: payload.overrides }
+          : p
+      )
+    );
+    setShowPricingModal(false);
   }
 
   function validate(): boolean {
@@ -550,12 +705,19 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
         const basis = i.sell_by === 'weight'
           ? Math.max(1, i.quantity) * (i.weight ?? 0)
           : i.quantity;
+        // Apply percentage discount per item in saved document items so receipt shows per-item deductions
+        const pct = discountType === 'percentage'
+          ? Math.max(0, Math.min(Number(discountInput || 0), 100))
+          : 0;
+        const unitPriceEffective = pct > 0
+          ? Number((i.unitPrice * (1 - pct / 100)).toFixed(2))
+          : i.unitPrice;
         return {
           description: i.name,
           quantity: i.quantity,
           weight: i.weight ?? 0,
-          unit_price: i.unitPrice,
-          amount: i.unitPrice * basis,
+          unit_price: unitPriceEffective,
+          amount: unitPriceEffective * basis,
           sell_by: i.sell_by || 'unit',
           item_id: i.itemId,
         };
@@ -587,6 +749,11 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
         ? total
         : 0;
 
+      // Ensure we only pass supported payment methods to save helper
+      // Map UI 'provider' to 'transfer' for persistence and type compatibility
+      const paymentMethodForSave: 'card' | 'cash' | 'both' | 'cod' | 'transfer' =
+        paymentMethod === 'provider' ? 'transfer' : paymentMethod;
+
       const doc = await supabaseHelpers.createPOSOrder(
         posMode,
         {
@@ -598,7 +765,7 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
         },
         items,
         {
-          paymentMethod,
+          paymentMethod: paymentMethodForSave,
           paymentCardAmount: Number(cardAmountForSave.toFixed(2)),
           paymentCashAmount: Number(cashAmountForSave.toFixed(2)),
           deliveryFee: mode === 'delivery' ? deliveryFee : 0,
@@ -624,6 +791,8 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
         setSelectedProviderId(providers[0].id);
       }
       setDiscountAmount(0);
+      setDiscountInput(0);
+      setDiscountType('amount');
       setPaymentMethod(mode === 'in_store' ? 'cash' : 'cod');
       if (onOrderSaved) {
         onOrderSaved(doc.id, { print: true });
@@ -1159,7 +1328,9 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
             </div>
             {discountAmount > 0 && (
               <div className="flex items-center justify-between text-slate-600 mt-2">
-                <p>Discount</p>
+                <p>
+                  Discount{discountType === 'percentage' ? ` (${Math.max(0, Math.min(Number(discountInput || 0), 100))}% )` : ''}
+                </p>
                 <p>-{discountAmount.toFixed(2)}</p>
               </div>
             )}
@@ -1174,20 +1345,48 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
               <p>{total.toFixed(2)}</p>
             </div>
             {mode !== 'live_show' && (
-              <div className="mt-3">
-                <button
-                  onClick={() => {
-                    const input = prompt('Enter discount amount');
-                    if (input === null) return;
-                    const parsed = parseFloat(input);
-                    const val = Number.isFinite(parsed) ? parsed : 0;
-                    const clamped = Math.max(0, Math.min(val, subtotal));
-                    setDiscountAmount(clamped);
-                  }}
-                  className="inline-flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50"
-                >
-                  Set Discount
-                </button>
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                <div>
+                  <label className="text-sm text-slate-600">Discount Type</label>
+                  <div className="mt-1 inline-flex rounded-lg border border-slate-200 overflow-hidden">
+                    <button
+                      type="button"
+                      className={`px-3 py-1.5 text-sm ${discountType === 'amount' ? 'bg-slate-100 text-slate-800' : 'bg-white text-slate-700'} border-r border-slate-200`}
+                      onClick={() => setDiscountType('amount')}
+                    >
+                      Amount
+                    </button>
+                    <button
+                      type="button"
+                      className={`px-3 py-1.5 text-sm ${discountType === 'percentage' ? 'bg-slate-100 text-slate-800' : 'bg-white text-slate-700'}`}
+                      onClick={() => setDiscountType('percentage')}
+                    >
+                      Percentage
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">{discountType === 'percentage' ? 'Percentage' : 'Amount'}</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={discountType === 'percentage' ? 100 : undefined}
+                    step={discountType === 'percentage' ? '0.01' : '0.01'}
+                    value={Number.isFinite(discountInput) ? discountInput : 0}
+                    onChange={(e) => setDiscountInput(parseFloat(e.target.value) || 0)}
+                    className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg"
+                    placeholder={discountType === 'percentage' ? 'e.g. 10 for 10%' : 'e.g. 5.00'}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="mt-6 px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50"
+                    onClick={() => { setDiscountInput(0); setDiscountType('amount'); }}
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1301,6 +1500,17 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                         {providerManaged && (
                           <p className="text-xs text-emerald-600 mt-2">Customer details optional for managed providers.</p>
                         )}
+                        <div className="mt-3 flex items-center justify-between">
+                          <div className="text-xs text-slate-600">
+                            Provider Pricing: Multiplier {typeof (selectedProvider as any).priceMultiplier !== 'undefined' && (selectedProvider as any).priceMultiplier !== null ? String(Number((selectedProvider as any).priceMultiplier)) : '-'}, Overrides {Array.isArray((selectedProvider as any).priceOverrides) ? (selectedProvider as any).priceOverrides.length : 0}
+                          </div>
+                          <button
+                            onClick={() => setShowPricingModal(true)}
+                            className="px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white hover:bg-slate-50"
+                          >
+                            Edit Item Pricing
+                          </button>
+                        </div>
                       </>
                     ) : (
                       <p className="text-xs text-slate-500">Select a delivery provider to view details.</p>
@@ -1310,6 +1520,12 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                     <div className="p-3 border border-slate-200 rounded-lg bg-slate-50">
                       <p className="text-xs text-slate-500 mb-1">COD Amount</p>
                       <p className="text-sm font-semibold text-slate-800">{cashAmount.toFixed(2)}</p>
+                    </div>
+                  )}
+                  {paymentMethod === 'provider' && (
+                    <div className="p-3 border border-slate-200 rounded-lg bg-slate-50">
+                      <p className="text-xs text-slate-500 mb-1">Provider Collect Amount</p>
+                      <p className="text-sm font-semibold text-slate-800">{total.toFixed(2)}</p>
                     </div>
                   )}
                 </div>
@@ -1472,6 +1688,79 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                     className="px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
                   >
                     Save & Print Receipt
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Provider Pricing Editor Modal */}
+        {showPricingModal && selectedProvider && (
+          <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+            <div className="bg-white w-[95vw] max-w-3xl rounded-xl shadow-lg border border-slate-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold">Edit Provider Item Pricing</h3>
+                <button onClick={() => setShowPricingModal(false)} className="p-2 hover:bg-slate-50 rounded-lg">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Default Price Multiplier</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={multiplierInput}
+                    onChange={(e) => setMultiplierInput(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">Applied to items without explicit override. Leave blank or 0 to disable.</p>
+                </div>
+                <div className="max-h-[45vh] overflow-auto border border-slate-200 rounded-lg">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50 text-slate-600">
+                      <tr>
+                        <th className="text-left px-3 py-2">Item</th>
+                        <th className="text-left px-3 py-2">SKU</th>
+                        <th className="text-right px-3 py-2">Base Price</th>
+                        <th className="text-right px-3 py-2">Override Price</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {products.map((prod) => (
+                        <tr key={prod.id} className="border-t border-slate-200">
+                          <td className="px-3 py-2 text-slate-800">{prod.name}</td>
+                          <td className="px-3 py-2 text-slate-500">{prod.sku || '-'}</td>
+                          <td className="px-3 py-2 text-right text-slate-700">{Number(prod.price).toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={pricingForm[prod.id] || ''}
+                              onChange={(e) => handleOverrideChange(prod.id, e.target.value)}
+                              className="w-32 px-2 py-1 border border-slate-200 rounded-lg"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => setShowPricingModal(false)}
+                    className="px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveProviderPricing}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    Save Pricing
                   </button>
                 </div>
               </div>

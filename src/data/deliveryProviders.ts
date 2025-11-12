@@ -1,9 +1,19 @@
+export type DeliveryPriceOverride = {
+  itemId?: string;
+  sku?: string;
+  price: number;
+};
+
 export type DeliveryProviderOption = {
   id: string;
   name: string;
   phone: string;
   managerPhone: string;
   managed: boolean;
+  // Optional pricing controls for managed providers/platforms
+  // If set, product prices shown in POS will be adjusted accordingly
+  priceMultiplier?: number; // e.g., 1.10 for +10%
+  priceOverrides?: DeliveryPriceOverride[]; // per-item overrides
 };
 
 export const DELIVERY_PROVIDERS: DeliveryProviderOption[] = [
@@ -27,6 +37,13 @@ export const DELIVERY_PROVIDERS: DeliveryProviderOption[] = [
     phone: '+971-4-555-6677',
     managerPhone: '+971-50-555-6667',
     managed: false,
+    // Example: increase all item prices by 10% when Talabat is selected
+    priceMultiplier: 1.10,
+    // Example overrides (optional):
+    // priceOverrides: [
+    //   { sku: 'HALWA-1KG', price: 30 },
+    //   { itemId: 'item-uuid-123', price: 45 },
+    // ],
   },
   {
     id: 'porter',

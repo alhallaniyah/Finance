@@ -4,8 +4,74 @@ import { supabase } from './supabase';
 let documentsCache: { data: Document[]; timestamp: number } | null = null;
 const DOCUMENTS_CACHE_TTL_MS = 60_000; // 60 seconds
 
+// Paged cache for dashboard documents
+const documentPagesCache: Map<string, { data: Document[]; total: number; timestamp: number }> = new Map();
+const DOCUMENT_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
+
+// Paged cache for kitchen batches
+const kitchenBatchPagesCache: Map<string, { data: KitchenBatch[]; total: number; timestamp: number }> = new Map();
+const KITCHEN_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
+
+// Cache for catalog items and delivery providers (used by Dashboard/Admin/POS)
+let itemsCache: { data: Item[]; timestamp: number } | null = null;
+let deliveryProvidersCache: { data: DeliveryProvider[]; timestamp: number } | null = null;
+const LIST_CACHE_TTL_MS = 60_000; // 60 seconds
+
+// LocalStorage TTLs (longer-lived than in-memory)
+const LOCAL_LIST_CACHE_TTL_MS = 15 * 60_000; // 15 minutes
+const LOCAL_PAGE_CACHE_TTL_MS = 15 * 60_000; // 15 minutes
+
 function nowMs() {
   return Date.now();
+}
+
+// ---- localStorage helpers ----
+type CachedPayload<T = any> = { data: T; timestamp: number } & Record<string, any>;
+
+function lsGet<T = any>(key: string): CachedPayload<T> | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.timestamp !== 'number') return null;
+    return parsed as CachedPayload<T>;
+  } catch {
+    return null;
+  }
+}
+
+function lsSet(key: string, payload: any) {
+  try {
+    const withTs = { ...payload, timestamp: nowMs() };
+    localStorage.setItem(key, JSON.stringify(withTs));
+  } catch {
+    // ignore storage write errors (e.g., privacy mode)
+  }
+}
+
+function lsRemove(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
+
+function lsRemoveByPrefix(prefix: string) {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k) keys.push(k);
+    }
+    for (const k of keys) {
+      if (k.startsWith(prefix)) {
+        localStorage.removeItem(k);
+      }
+    }
+  } catch {
+    // ignore
+  }
 }
 
 function isDocumentsCacheValid() {
@@ -18,6 +84,70 @@ function setDocumentsCache(data: Document[]) {
 
 function invalidateDocumentsCache() {
   documentsCache = null;
+}
+
+function documentPageCacheKey(page: number, pageSize: number) {
+  return `${page}:${pageSize}`;
+}
+
+function isDocumentPageCacheValid(key: string) {
+  const entry = documentPagesCache.get(key);
+  return !!entry && nowMs() - entry.timestamp < DOCUMENT_PAGES_CACHE_TTL_MS;
+}
+
+function setDocumentPageCache(key: string, payload: { data: Document[]; total: number }) {
+  documentPagesCache.set(key, { ...payload, timestamp: nowMs() });
+}
+
+function invalidateDocumentPagesCache() {
+  documentPagesCache.clear();
+  // also clear persisted cache
+  lsRemoveByPrefix('cache:documents:page:');
+}
+
+function kitchenBatchPageCacheKey(page: number, pageSize: number) {
+  return `${page}:${pageSize}`;
+}
+
+function isKitchenBatchPageCacheValid(key: string) {
+  const entry = kitchenBatchPagesCache.get(key);
+  return !!entry && nowMs() - entry.timestamp < KITCHEN_PAGES_CACHE_TTL_MS;
+}
+
+function setKitchenBatchPageCache(key: string, payload: { data: KitchenBatch[]; total: number }) {
+  kitchenBatchPagesCache.set(key, { ...payload, timestamp: nowMs() });
+}
+
+function invalidateKitchenBatchPagesCache() {
+  kitchenBatchPagesCache.clear();
+  // also clear persisted cache
+  lsRemoveByPrefix('cache:kitchen_batches:page:');
+}
+
+function isItemsCacheValid() {
+  return itemsCache !== null && nowMs() - itemsCache.timestamp < LIST_CACHE_TTL_MS;
+}
+
+function setItemsCache(data: Item[]) {
+  itemsCache = { data, timestamp: nowMs() };
+}
+
+function invalidateItemsCache() {
+  itemsCache = null;
+  lsRemove('cache:items:list');
+}
+
+function isDeliveryProvidersCacheValid() {
+  return deliveryProvidersCache !== null && nowMs() - deliveryProvidersCache.timestamp < LIST_CACHE_TTL_MS;
+}
+
+function setDeliveryProvidersCache(data: DeliveryProvider[]) {
+  deliveryProvidersCache = { data, timestamp: nowMs() };
+}
+
+function invalidateDeliveryProvidersCache() {
+  deliveryProvidersCache = null;
+  lsRemove('cache:delivery_providers:list');
 }
 
 async function generateDocumentNumberInternal(type: 'quotation' | 'invoice' | 'delivery_note'): Promise<string> {
@@ -555,12 +685,27 @@ export const supabaseHelpers = {
   },
 
   async getDeliveryProviders(): Promise<DeliveryProvider[]> {
+    // Try in-memory cache
+    if (isDeliveryProvidersCacheValid()) {
+      return deliveryProvidersCache!.data;
+    }
+    // Then check localStorage
+    const lsKey = 'cache:delivery_providers:list';
+    const lsCached = lsGet<DeliveryProvider[]>(lsKey);
+    if (lsCached && nowMs() - lsCached.timestamp < LOCAL_LIST_CACHE_TTL_MS) {
+      setDeliveryProvidersCache(lsCached.data as DeliveryProvider[]);
+      return lsCached.data as DeliveryProvider[];
+    }
+    // Fetch from Supabase
     const { data, error } = await supabase
       .from('delivery_providers')
       .select('id, company_id, name, phone, method, managed, created_at')
       .order('name', { ascending: true });
     if (error) throw error;
-    return (data || []) as DeliveryProvider[];
+    const providers = (data || []) as DeliveryProvider[];
+    setDeliveryProvidersCache(providers);
+    lsSet(lsKey, { data: providers });
+    return providers;
   },
 
   // ===== Kitchen Stopwatch Helpers =====
@@ -840,11 +985,16 @@ export const supabaseHelpers = {
           .select('*')
           .maybeSingle();
         if (retry.error) throw retry.error;
-        return retry.data as KitchenBatch;
+        const created = retry.data as KitchenBatch;
+        // Invalidate paged caches since list ordering and totals may change
+        invalidateKitchenBatchPagesCache();
+        return created;
       }
       throw error;
     }
-    return data as KitchenBatch;
+    const created = data as KitchenBatch;
+    invalidateKitchenBatchPagesCache();
+    return created;
   },
 
   async finishKitchenBatch(batchId: string): Promise<KitchenBatch> {
@@ -863,13 +1013,29 @@ export const supabaseHelpers = {
       .select('*')
       .maybeSingle();
     if (error) throw error;
-    return data as KitchenBatch;
+    const updated = data as KitchenBatch;
+    invalidateKitchenBatchPagesCache();
+    return updated;
   },
 
   async getKitchenBatchesPage(page: number, pageSize: number): Promise<{ data: KitchenBatch[]; total: number }> {
     const companyId = await supabaseHelpers.resolveCompanyId();
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
+    // Try cache first (scoped by page+size only; filtered by company)
+    const key = kitchenBatchPageCacheKey(page, pageSize);
+    if (isKitchenBatchPageCacheValid(key)) {
+      const cached = kitchenBatchPagesCache.get(key)!;
+      return { data: cached.data, total: cached.total };
+    }
+    // Check localStorage next (per-company)
+    const lsKey = `cache:kitchen_batches:page:${companyId}:${key}`;
+    const lsCached = lsGet<KitchenBatch[]>(lsKey);
+    if (lsCached && nowMs() - lsCached.timestamp < LOCAL_PAGE_CACHE_TTL_MS) {
+      const payload = { data: (lsCached.data || []) as KitchenBatch[], total: Number((lsCached as any).total) || 0 };
+      setKitchenBatchPageCache(key, payload);
+      return payload;
+    }
     const { data, error, count } = await supabase
       .from('kitchen_batches')
       .select('*', { count: 'planned' })
@@ -877,7 +1043,10 @@ export const supabaseHelpers = {
       .order('created_at', { ascending: false })
       .range(from, to);
     if (error) throw error;
-    return { data: (data || []) as KitchenBatch[], total: count || 0 };
+    const payload = { data: (data || []) as KitchenBatch[], total: count || 0 };
+    setKitchenBatchPageCache(key, payload);
+    lsSet(lsKey, payload);
+    return payload;
   },
 
   async startKitchenProcess(batchId: string, processTypeId: string, options?: { remarks?: string }): Promise<KitchenProcess> {
@@ -987,7 +1156,9 @@ export const supabaseHelpers = {
       .select('*')
       .maybeSingle();
     if (uErr) throw uErr;
-    return updated as KitchenBatch;
+    const res = updated as KitchenBatch;
+    invalidateKitchenBatchPagesCache();
+    return res;
   },
 
   async createDeliveryProvider(payload: { name: string; phone?: string; method?: string; managed?: boolean }): Promise<DeliveryProvider> {
@@ -1009,6 +1180,7 @@ export const supabaseHelpers = {
       .select('id, company_id, name, phone, method, managed, created_at')
       .single();
     if (error) throw error;
+    invalidateDeliveryProvidersCache();
     return data as DeliveryProvider;
   },
 
@@ -1023,6 +1195,7 @@ export const supabaseHelpers = {
       })
       .eq('id', id);
     if (error) throw error;
+    invalidateDeliveryProvidersCache();
   },
 
   async deleteDeliveryProvider(id: string): Promise<void> {
@@ -1031,6 +1204,7 @@ export const supabaseHelpers = {
       .delete()
       .eq('id', id);
     if (error) throw error;
+    invalidateDeliveryProvidersCache();
   },
 
   async findOrCreateDeliveryProvider(params: { name: string; phone?: string; method?: string; managed?: boolean }): Promise<{ id: string; name: string }>
@@ -1089,6 +1263,22 @@ export const supabaseHelpers = {
     const safePageSize = Math.max(1, Math.floor(pageSize || 10));
     const start = (safePage - 1) * safePageSize;
     const end = start + safePageSize - 1;
+    // Try cache first
+    const key = documentPageCacheKey(safePage, safePageSize);
+    if (isDocumentPageCacheValid(key)) {
+      const cached = documentPagesCache.get(key)!;
+      return { data: cached.data, total: cached.total };
+    }
+    // Try localStorage next
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData?.user?.id || 'anon';
+    const lsKey = `cache:documents:page:${userId}:${key}`;
+    const lsCached = lsGet<Document[]>(lsKey);
+    if (lsCached && nowMs() - lsCached.timestamp < LOCAL_PAGE_CACHE_TTL_MS) {
+      const payload = { data: (lsCached.data || []) as Document[], total: Number((lsCached as any).total) || 0 };
+      setDocumentPageCache(key, payload);
+      return payload;
+    }
     const { data, error, count } = await supabase
       .from('documents')
       .select('*', { count: 'exact' })
@@ -1096,7 +1286,10 @@ export const supabaseHelpers = {
       .range(start, end);
 
     if (error) throw error;
-    return { data: (data || []) as Document[], total: count ?? 0 };
+    const payload = { data: (data || []) as Document[], total: count ?? 0 };
+    setDocumentPageCache(key, payload);
+    lsSet(lsKey, payload);
+    return payload;
   },
 
   async getDocument(id: string): Promise<Document | null> {
@@ -1126,6 +1319,7 @@ export const supabaseHelpers = {
     if (error) throw error;
     // Mutations invalidate cache
     invalidateDocumentsCache();
+    invalidateDocumentPagesCache();
     return data;
   },
 
@@ -1138,6 +1332,7 @@ export const supabaseHelpers = {
     if (error) throw error;
     // Mutations invalidate cache
     invalidateDocumentsCache();
+    invalidateDocumentPagesCache();
   },
 
   async deleteDocument(id: string): Promise<void> {
@@ -1149,6 +1344,7 @@ export const supabaseHelpers = {
     if (error) throw error;
     // Mutations invalidate cache
     invalidateDocumentsCache();
+    invalidateDocumentPagesCache();
   },
 
   async getDocumentItems(documentId: string): Promise<DocumentItem[]> {
@@ -1286,6 +1482,10 @@ export const supabaseHelpers = {
     const taxableBase = Math.max(subtotal - discountAmount, 0);
     const taxAmount = (taxableBase * taxRate) / 100;
     const total = taxableBase + taxAmount;
+    const managedForTotals = Boolean(options.deliveryProvider?.managed);
+    const deliveryFeeForTotals =
+      mode === 'delivery' ? (managedForTotals ? 0 : Math.max(Number(options.deliveryFee || 0), 0)) : 0;
+    const grandTotal = total + deliveryFeeForTotals;
 
     const normalizedPaymentMethod =
       mode === 'delivery' && (options.paymentMethod === 'card' || options.paymentMethod === 'both')
@@ -1309,7 +1509,8 @@ export const supabaseHelpers = {
         paymentCashAmount = Math.max(options.paymentCashAmount || 0, 0);
       }
     } else {
-      paymentCashAmount = normalizedPaymentMethod === 'cod' ? total : 0;
+      // For COD on delivery, collect the grand total including delivery fee
+      paymentCashAmount = normalizedPaymentMethod === 'cod' ? grandTotal : 0;
     }
 
     // Resolve delivery provider and fee, with managed exemption
@@ -1377,6 +1578,7 @@ export const supabaseHelpers = {
     const invoiceNumber = await generateDocumentNumberInternal('invoice');
     const deliveryNoteNumber = await generateDocumentNumberInternal('delivery_note');
 
+    const invoiceTotal = mode === 'delivery' ? total + deliveryFeeVal : total;
     const invoice = await supabaseHelpers.createDocument({
       document_type: 'invoice',
       document_number: invoiceNumber,
@@ -1391,7 +1593,7 @@ export const supabaseHelpers = {
       subtotal,
       tax_amount: taxAmount,
       discount_amount: discountAmount,
-      total,
+      total: invoiceTotal,
       notes: `POS Order (delivery)`,
       terms: settings?.default_terms || '',
       status: 'paid',
@@ -1399,7 +1601,8 @@ export const supabaseHelpers = {
       payment_method: normalizedPaymentMethod,
       payment_card_amount: paymentCardAmount,
       payment_cash_amount: paymentCashAmount,
-      delivery_fee: 0,
+      // Store delivery fee on invoice for clarity; delivery note also carries it
+      delivery_fee: deliveryFeeVal,
       delivery_provider_id: null,
     });
     for (const item of items) {
@@ -1495,12 +1698,27 @@ export const supabaseHelpers = {
 
   // --- Items CRUD ---
   async getItems(): Promise<Item[]> {
+    // Try in-memory cache first
+    if (isItemsCacheValid()) {
+      return itemsCache!.data;
+    }
+    // Then check localStorage
+    const lsKey = 'cache:items:list';
+    const lsCached = lsGet<Item[]>(lsKey);
+    if (lsCached && nowMs() - lsCached.timestamp < LOCAL_LIST_CACHE_TTL_MS) {
+      setItemsCache(lsCached.data as Item[]);
+      return lsCached.data as Item[];
+    }
+    // Fallback to Supabase
     const { data, error } = await supabase
       .from('items')
       .select('*')
       .order('name', { ascending: true });
     if (error) throw error;
-    return data || [];
+    const items = (data || []) as Item[];
+    setItemsCache(items);
+    lsSet(lsKey, { data: items });
+    return items;
   },
 
   async createItem(payload: { name: string; sku?: string | null; price: number; sell_by?: 'unit' | 'weight' }): Promise<Item> {
@@ -1512,6 +1730,8 @@ export const supabaseHelpers = {
       .select('*')
       .single();
     if (error) throw error;
+    // Invalidate dependent caches
+    invalidateItemsCache();
     return data as Item;
   },
 
@@ -1521,6 +1741,7 @@ export const supabaseHelpers = {
       .update({ name: updates.name, sku: updates.sku ?? null, price: updates.price, sell_by: updates.sell_by })
       .eq('id', id);
     if (error) throw error;
+    invalidateItemsCache();
   },
 
   async deleteItem(id: string): Promise<void> {
@@ -1529,5 +1750,6 @@ export const supabaseHelpers = {
       .delete()
       .eq('id', id);
     if (error) throw error;
+    invalidateItemsCache();
   },
 };

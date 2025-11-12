@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Play, StepForward, Square, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Play, StepForward, CheckCircle } from 'lucide-react';
 import { supabaseHelpers, KitchenBatch, KitchenProcessType, KitchenProcess } from '../lib/supabaseHelpers';
 
 type BatchProcessRunnerProps = {
@@ -9,7 +9,6 @@ type BatchProcessRunnerProps = {
 };
 
 export default function BatchProcessRunner({ batch, onBack, onFinished }: BatchProcessRunnerProps) {
-  const [types, setTypes] = useState<KitchenProcessType[]>([]);
   const [typesById, setTypesById] = useState<Record<string, KitchenProcessType>>({});
   const [processes, setProcesses] = useState<KitchenProcess[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -31,7 +30,6 @@ export default function BatchProcessRunner({ batch, onBack, onFinished }: BatchP
         ]);
         if (!mounted) return;
         setProcesses(procs || []);
-        setTypes(pts);
         setTypesById(Object.fromEntries(pts.map(t => [t.id, t])));
         const firstIncomplete = (procs || []).findIndex(p => !p.end_time);
         const idx = firstIncomplete >= 0 ? firstIncomplete : (procs || []).length - 1;
