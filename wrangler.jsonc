@@ -3,5 +3,11 @@
   "compatibility_date": "2025-11-05",
   "main": "worker/index.ts",
   "assets": { "directory": "./dist" },
+  "kv_namespaces": [
+    {
+      "binding": "alhallaniyah",
+      "id": "c85e379a81a3462caac5b2fe6b74d81d"
+    }
+  ]
   
 }
