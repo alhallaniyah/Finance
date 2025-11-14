@@ -198,7 +198,7 @@ export default function Settings({ onBack }: SettingsProps) {
           </p>
           <div className="flex items-center gap-3">
             <a
-              href={`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api/google/oauth/start`}
+              href={`${import.meta.env.VITE_API_BASE_URL || ''}/api/google/oauth/start`}
               className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
             >
               <LinkIcon className="w-4 h-4" />
