@@ -1,4 +1,4 @@
-from flask import Flask, request, make_response, jsonify
+from flask import Flask, request, make_response, jsonify, redirect
 import os
 import io
 from datetime import datetime
@@ -7,6 +7,9 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfdoc
+import json
+import urllib.parse
+import requests
 
 app = Flask(__name__)
 
@@ -231,7 +234,7 @@ def build_receipt_pdf(payload: dict) -> bytes:
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
 
 
@@ -260,6 +263,73 @@ def generate_receipt():
         return jsonify({"error": str(e)}), 400
 
 
+# ===== GOOGLE CALENDAR OAUTH =====
+# Read server-side credentials from environment. Do NOT expose in frontend.
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
+GOOGLE_AUTH_URI = os.environ.get("GOOGLE_AUTH_URI", "https://accounts.google.com/o/oauth2/auth")
+GOOGLE_TOKEN_URI = os.environ.get("GOOGLE_TOKEN_URI", "https://oauth2.googleapis.com/token")
+GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "http://localhost:5001/api/google/oauth/callback")
+GOOGLE_SCOPE = os.environ.get("GOOGLE_CALENDAR_SCOPE", "https://www.googleapis.com/auth/calendar.events")
+
+
+@app.route("/api/google/oauth/start", methods=["GET"])  # redirect user to Google consent screen
+def google_oauth_start():
+    if not GOOGLE_CLIENT_ID:
+        return jsonify({"error": "Missing GOOGLE_CLIENT_ID on server"}), 500
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "response_type": "code",
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true",
+        "scope": GOOGLE_SCOPE,
+    }
+    url = f"{GOOGLE_AUTH_URI}?{urllib.parse.urlencode(params)}"
+    return redirect(url, code=302)
+
+
+@app.route("/api/google/oauth/callback", methods=["GET"])  # handle Google OAuth redirect
+def google_oauth_callback():
+    code = request.args.get("code")
+    if not code:
+        return jsonify({"error": "Missing authorization code"}), 400
+    if not (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET):
+        return jsonify({"error": "Server missing Google OAuth credentials"}), 500
+
+    try:
+        data = {
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": GOOGLE_REDIRECT_URI,
+            "grant_type": "authorization_code",
+        }
+        resp = requests.post(GOOGLE_TOKEN_URI, data=data, timeout=20)
+        if resp.status_code != 200:
+            return jsonify({"error": "Token exchange failed", "details": resp.text}), 400
+        token_payload = resp.json()
+
+        # Persist tokens locally for now (dev). In production, store in a secure DB.
+        os.makedirs(".secrets", exist_ok=True)
+        with open(".secrets/google_calendar_tokens.json", "w") as f:
+            json.dump(token_payload, f)
+
+        # Simple confirmation page
+        html = (
+            "<html><body>"
+            "<h3>Google Calendar connected.</h3>"
+            "<p>You can close this tab and return to the app.</p>"
+            "</body></html>"
+        )
+        response = make_response(html)
+        response.headers["Content-Type"] = "text/html"
+        return response
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "5000"))
+    port = int(os.environ.get("PORT", "5001"))
     app.run(host="0.0.0.0", port=port)
