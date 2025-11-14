@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Search, Plus, Trash2, User, MapPin, Phone, Home, Package, Truck, Store, X, Timer } from 'lucide-react';
 import { supabaseHelpers, CompanySettings, Item, DeliveryProvider as DBDeliveryProvider, LiveShow, LiveShowPayment, LiveShowQuotation } from '../lib/supabaseHelpers';
 import { generateDocumentNumber } from '../lib/documentHelpers';
@@ -36,7 +36,7 @@ type Customer = {
   emirate?: string;
 };
 
-const EMIRATES = [
+  const EMIRATES = [
   'Abu Dhabi',
   'Dubai',
   'Sharjah',
@@ -72,6 +72,10 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [pricingForm, setPricingForm] = useState<Record<string, string>>({});
   const [multiplierInput, setMultiplierInput] = useState<string>('');
+
+  // Submission guard and loading indicator (must be inside component)
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   // Live Show fields
   const [lsItemName, setLsItemName] = useState('');
@@ -706,7 +710,10 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
 
   async function handleConfirmOrder() {
     if (!validate()) return;
+    if (savingRef.current || saving) return; // guard against double clicks
     setError('');
+    savingRef.current = true;
+    setSaving(true);
     try {
       // Live Show: create quotation & live show
       if (mode === 'live_show') {
@@ -851,6 +858,9 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
     } catch (e: any) {
       console.error('Failed to save POS order', e);
       setError(e?.message || 'Failed to save order. Please try again.');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   }
 
@@ -1675,11 +1685,23 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                 </button>
                 <button
                   onClick={handleConfirmOrder}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Package className="w-4 h-4" /> {mode === 'live_show' ? 'Create Quotation' : 'Confirm Order'}
+                  <Package className="w-4 h-4" /> {saving ? 'Processing...' : (mode === 'live_show' ? 'Create Quotation' : 'Confirm Order')}
                 </button>
               </div>
+
+              {/* Saving Overlay */}
+              {saving && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+                  <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6 w-[90vw] max-w-sm text-center">
+                    <div className="animate-spin h-6 w-6 border-2 border-emerald-600 border-t-transparent rounded-full mx-auto mb-3"></div>
+                    <div className="text-slate-800 font-semibold mb-1">Saving order...</div>
+                    <div className="text-slate-600 text-sm">Please wait, this may take a moment.</div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
