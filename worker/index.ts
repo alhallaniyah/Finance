@@ -19,6 +19,7 @@ export interface Env {
   GOOGLE_CALENDAR_SCOPE?: string;
   GOOGLE_REDIRECT_BASE?: string;
   GOOGLE_TOKENS?: KVNamespace;
+  alhallaniyah?: KVNamespace;
 }
 
 function jsonResponse(obj: unknown, status = 200): Response {
@@ -87,8 +88,9 @@ async function handleCallback(request: Request, env: Env): Promise<Response> {
   }
 
   const tokenPayload: any = await resp.json();
-  if (env.GOOGLE_TOKENS) {
-    await env.GOOGLE_TOKENS.put('default_tokens', JSON.stringify(tokenPayload));
+  const kv = env.GOOGLE_TOKENS || env.alhallaniyah;
+  if (kv) {
+    await kv.put('default_tokens', JSON.stringify(tokenPayload));
   }
 
   const html = `
