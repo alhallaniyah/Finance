@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Document, DocumentItem, CompanySettings } from '../lib/supabaseHelpers';
 import { supabaseHelpers } from '../lib/supabaseHelpers';
 import { ArrowLeft, CreditCard as Edit, Copy, Printer } from 'lucide-react';
 import { formatCurrency, formatDate } from '../lib/documentHelpers';
 import { generateReceipt } from '../utils/api';
+import { printElementWithStyles } from '../lib/printHelpers';
 
 type DocumentViewProps = {
   document: Document;
@@ -72,13 +73,14 @@ export default function DocumentView({
 
     const paidAmount = (Number(document.payment_card_amount) || 0) + (Number(document.payment_cash_amount) || 0) || (Number(document.total) || 0);
 
+    const paymentLabel = getPaymentMethodLabel(document.payment_method);
     return {
       companyName: companySettings?.company_name || 'Company Name',
       companyAddress: companySettings?.company_address || '',
       companyPhone: '',
       receiptNo: document.document_number,
       date: document.issue_date ? formatDate(document.issue_date) : '-',
-      paymentMethod: getPaymentMethodLabel(document.payment_method),
+      ...(document.document_type !== 'quotation' ? { paymentMethod: paymentLabel } : {}),
       items: itemsPayload,
       subtotal: Number(document.subtotal) || 0,
       vat: Number(document.tax_amount) || 0,
@@ -87,8 +89,12 @@ export default function DocumentView({
     };
   }
 
+  const printRef = useRef<HTMLDivElement | null>(null);
+
   async function handlePrint() {
-    const isPOS = document.origin === 'pos_in_store';
+    const origin = document.origin;
+    const isPOS = origin === 'pos_in_store';
+    const isDashboard = !isPOS && origin !== 'pos_delivery';
     if (isPOS) {
       try {
         const payload = buildReceiptPayload();
@@ -97,7 +103,22 @@ export default function DocumentView({
         console.error('Failed to generate POS receipt PDF, falling back to browser print.', e);
         window.print();
       }
-    } else {
+      return;
+    }
+
+    // Dashboard-origin: print the preview layout using TypeScript helper
+    try {
+      const target = printRef.current;
+      if (target) {
+        await printElementWithStyles(target, {
+          title: `${document.document_type.toUpperCase()} ${document.document_number}`,
+          keepScreenLayout: true,
+        });
+      } else {
+        window.print();
+      }
+    } catch (e) {
+      console.error('Dashboard print failed, falling back to browser print.', e);
       window.print();
     }
   }
@@ -107,10 +128,17 @@ export default function DocumentView({
       setHasAutoPrinted(true);
       setTimeout(async () => {
         try {
-          const isPOS = document.origin === 'pos_in_store';
+          const origin = document.origin;
+          const isPOS = origin === 'pos_in_store';
+          const target = printRef.current;
           if (isPOS) {
             const payload = buildReceiptPayload();
             await generateReceipt(payload);
+          } else if (target) {
+            await printElementWithStyles(target, {
+              title: `${document.document_type.toUpperCase()} ${document.document_number}`,
+              keepScreenLayout: true,
+            });
           } else {
             window.print();
           }
@@ -196,7 +224,7 @@ export default function DocumentView({
           </div>
         </div>
 
-        <div className={`bg-white rounded-xl shadow-sm border border-slate-200 p-12 ${isPOSInStore ? 'print:hidden' : 'print:shadow-none print:border-0'}`}>
+        <div ref={printRef} className={`bg-white rounded-xl shadow-sm border border-slate-200 p-12 ${isPOSInStore ? 'print:hidden' : 'print:shadow-none print:border-0'}`}>
           <div className="flex justify-between items-start mb-8">
             <div>
               {companySettings?.company_logo_url && (
@@ -319,7 +347,7 @@ export default function DocumentView({
 
         {(document.payment_method || Number(document.delivery_fee) > 0 || deliveryProvider) && (
           <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-            {document.payment_method && (
+            {document.payment_method && document.document_type !== 'quotation' && (
               <div className="p-6 bg-slate-50 border border-slate-200 rounded-lg">
                 <h3 className="text-sm font-semibold text-slate-700 mb-3 uppercase">Payment Details</h3>
                 <div className="space-y-2 text-sm text-slate-700">
@@ -437,7 +465,7 @@ export default function DocumentView({
                 <div className="thermal-kv"><span>Date:</span><span>{document.issue_date ? formatDate(document.issue_date) : '-'}</span></div>
               </div>
               <div>
-                {document.payment_method && (
+                {document.payment_method && document.document_type !== 'quotation' && (
                   <div className="thermal-kv"><span>Payment:</span><span className="uppercase">{getPaymentMethodLabel(document.payment_method)}</span></div>
                 )}
               </div>
@@ -466,7 +494,7 @@ export default function DocumentView({
 
             <div className="thermal-meta">
               <div className="thermal-kv"><span>Items count:</span><span>{items.length}</span></div>
-              {document.payment_method && (<div className="thermal-kv"><span>Payment:</span><span className="uppercase">{getPaymentMethodLabel(document.payment_method)}</span></div>)}
+              {document.payment_method && document.document_type !== 'quotation' && (<div className="thermal-kv"><span>Payment:</span><span className="uppercase">{getPaymentMethodLabel(document.payment_method)}</span></div>)}
             </div>
 
             <div className="thermal-line" />
