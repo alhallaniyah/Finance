@@ -6,7 +6,7 @@
 - Frontend: React + TypeScript + Vite + Tailwind
 - Data: Supabase (Postgres + RLS) with typed helpers
 - Services: Python Flask `receipt_api.py` for 80mm thermal receipt PDFs
-- Purpose: Manage quotations, invoices, delivery notes, POS sales, printing, and simple catalog/admin without heavy ERP complexity
+- Purpose: Manage quotations, invoices, delivery notes, POS sales, Live Show bookings and payments, Kitchen production tracking, printing, and simple catalog/admin without heavy ERP complexity
 
 ## Goals
 
@@ -90,6 +90,62 @@ Role resolution: mapped via `company_users` table (`getCurrentUserRole`) with RL
     - Captures delivery provider, fee (managed providers default fee to 0)
   - Product list and cart; item sell‑by unit/weight
 
+- Live Show POS Module
+  - Creation
+    - Capture client, date, time, item, kg, people, location, notes
+    - Auto `show_number` (e.g., `LS-YYYYMMDDXXXXXX`)
+    - Status defaults to `quotation`
+  - Quotation Generation
+    - Creates `live_show_quotations` row with `total_estimated`
+    - Generates a quotation document (non‑tax invoice)
+    - Calendar event created with yellow (tentative)
+  - Advance Payment
+    - From POS or All Live Shows, record an advance payment with `amount`, `method` (`cash` | `transfer`), and selected Payment Date
+    - Inserts `live_show_payments` with `payment_type='advance'`
+    - Updates the payment’s `created_at` to the selected Payment Date for audit consistency (allowed for admin/manager per RLS)
+    - Creates an invoice‑style receipt using `issue_date` = selected Payment Date; includes payment method and tax
+    - Updates Live Show status to `advanced_paid`; calendar turns blue (booked)
+  - Full Payment / Completion
+    - Record final payment with `amount`, `method`; inserts `payment_type='full'`
+    - Creates final receipt; status moves to `fully_paid`; calendar turns green (completed)
+  - All Live Shows Page
+    - Paginated table of all shows with inline actions: Edit, Delete, Record Advance
+    - Record Advance modal fields: Amount, Payment Date (reflected on receipt `issue_date`), Payment Method
+    - Save & Print flow: records payment, aligns `created_at`, generates receipt, opens print view
+  - Detail Page
+    - Shows client, quotations, payments, totals (estimated/advance/full/balance)
+    - Inline edit of payment date available for admin/manager
+  - Receipts
+    - Notes include show context: number, item, people, location, date, time
+    - Single line item: `Advance Payment (ls-XXXXXX)` for the paid amount; tax applied from settings
+  - RLS & Permissions
+    - Any employee can create live shows and record payments
+    - Admin/Manager can update payment dates (edit `created_at`)
+
+- Calendar Integration
+  - Live Show events are color‑coded:
+    - Quotation: yellow (tentative)
+    - Advanced paid: blue (booked)
+    - Fully paid: green (completed)
+    - Cancelled: red or deleted
+  - Calendar entries store `calendar_event_id` for sync
+
+- Kitchen Production & Stopwatch Module
+  - Batches
+    - Create kitchen batches with halwa type and starch weight
+    - Track start/end times, durations, and status (`in_progress` | `completed` | `validated`)
+  - Process Types & Maps
+    - Define process types with standard durations and variation buffers
+    - Map processes to halwa types with sequence orders
+  - Processes
+    - Precreate processes for a batch; start/stop individual processes
+    - Auto recording flag and remarks supported
+  - Validation
+    - Validate batches with `validation_status` (`good` | `moderate` | `shift_detected`)
+    - Admin Kitchen Dashboard provides oversight
+  - Roles
+    - Employees run batches; Admins/Managers can validate and view analytics
+
 - Admin
   - Items: name/sku/price/sell‑by; create, update, delete
   - Delivery providers: name/phone/method/managed; create, update, delete
@@ -136,6 +192,26 @@ Role resolution: mapped via `company_users` table (`getCurrentUserRole`) with RL
 - DeliveryProvider
   - `name`, `phone`, `method`, `managed`
 
+- Live Shows
+  - `live_shows`
+    - `id`, `company_id`, `client_id`, `show_number`, `location`, `show_date`, `show_time`, `item_name`, `kg`, `people_count`, `notes`, `status`, `calendar_event_id`, `created_by`, `created_at`
+  - `live_show_quotations`
+    - `id`, `company_id`, `live_show_id`, `quotation_number`, `total_estimated`, `created_by`, `created_at`
+  - `live_show_payments`
+    - `id`, `company_id`, `live_show_id`, `quotation_id`, `payment_type` (`advance` | `full`), `amount`, `method` (`cash` | `transfer`), `created_by`, `created_at`
+
+- Kitchen
+  - `kitchen_batches`
+    - `id`, `company_id`, `halwa_type`, `starch_weight`, `chef_id`, `chef_name`, `start_time`, `end_time`, `total_duration`, `status`, `validation_status`, `validated_by`, `validation_comments`, `created_by`, `created_at`
+  - `kitchen_process_types`
+    - `id`, `company_id`, `name`, `standard_duration_minutes`, `variation_buffer_minutes`, `active`, `created_by`, `created_at`
+  - `halwa_types`
+    - `id`, `company_id`, `name`, `base_process_count`, `active`, `created_by`, `created_at`
+  - `halwa_process_map`
+    - `id`, `halwa_type_id`, `process_type_id`, `sequence_order`, `additional_processes`, `created_by`, `created_at`
+  - `kitchen_processes`
+    - `id`, `batch_id`, `company_id`, `process_type_id`, `start_time`, `end_time`, `duration_minutes`, `remarks`, `auto_recorded`, `created_by`, `created_at`
+
 ## Business Rules
 
 - Document numbering: per type per day; sequential numbering generated server‑side helper
@@ -143,6 +219,10 @@ Role resolution: mapped via `company_users` table (`getCurrentUserRole`) with RL
 - Delivery fee: defaults to 0 for managed providers; otherwise uses entered fee
 - POS delivery creates two documents: invoice and delivery note
 - Cache invalidation: on `createDocument`, `updateDocument`, `deleteDocument` and related item mutations
+- Live Show status flow: `quotation` → (advance payment) → `advanced_paid` → (full payment) → `fully_paid` → (or `cancelled`)
+- Live Show receipts: created as invoices with `issue_date` equal to chosen Payment Date; payment method printed on receipt; notes include show context
+- Payment date edits: only admin/manager can update `live_show_payments.created_at`
+- Calendar color rules per Live Show status (yellow/blue/green/red)
 
 ## APIs & Integration
 
@@ -169,12 +249,18 @@ Role resolution: mapped via `company_users` table (`getCurrentUserRole`) with RL
     ```
   - Frontend call: `generateReceipt(payload)` in `src/utils/api.js`
 
+- Calendar Sync (Live Shows)
+  - Server‑side integration holds credentials; events tracked via `calendar_event_id`
+  - Status transitions update event color (yellow/blue/green/red)
+
 ## Non‑Functional Requirements
 
 - Security: Supabase RLS; role‑based policies; company scoping
 - Performance: caching + server‑side pagination
 - Reliability: receipt API fallback to browser print on failure
 - Compatibility: mobile‑friendly UI, thermal printing CSS for 80mm receipts
+- Maintainability: typed helpers for Supabase access; clear modular components for POS, Live Shows, Kitchen
+- Observability: console logging for print and save flows; error messages surfaced in modals
 
 ## Current Gaps & Notes
 
@@ -200,7 +286,7 @@ Role resolution: mapped via `company_users` table (`getCurrentUserRole`) with RL
 ## Runbook (Dev)
 
 - Frontend dev server
-  - `npm run dev` → `http://localhost:5174/`
+  - `npm run dev` → Vite dev server (example `http://localhost:5181/`)
 
 - Receipt API (Flask)
   - `PORT=5001 python3 api/receipt_api.py` → `http://127.0.0.1:5001/`
@@ -211,3 +297,7 @@ Role resolution: mapped via `company_users` table (`getCurrentUserRole`) with RL
 - Added `getDocumentsPage` for server‑side pagination (10 per page)
 - Introduced lightweight 60s TTL cache for dashboard document list
 - Fixed PDF rendering by drawing text on final canvas; added Subtotal & VAT
+- Implemented Live Show receipts: `createAdvanceReceiptForLiveShow` with tax & method
+- Added Record Advance modal on All Live Shows; Save & Print flow
+- Enabled payment date edit via `updateLiveShowPaymentDate` (admin/manager)
+- Introduced Kitchen Stopwatch module and validation workflow

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabaseHelpers } from '../lib/supabaseHelpers';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, Save, Calendar as CalendarIcon, Link as LinkIcon } from 'lucide-react';
 
 type SettingsProps = {
   onBack: () => void;
@@ -185,6 +185,27 @@ export default function Settings({ onBack }: SettingsProps) {
               </button>
             </div>
           </form>
+        </div>
+
+        {/* Google Calendar Integration */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 mt-6">
+          <div className="flex items-center gap-2 mb-4">
+            <CalendarIcon className="w-5 h-5 text-slate-700" />
+            <h2 className="text-lg font-semibold text-slate-800">Google Calendar Integration</h2>
+          </div>
+          <p className="text-sm text-slate-600 mb-4">
+            Connect your Google account to sync live shows as calendar events. Credentials are stored server‑side.
+          </p>
+          <div className="flex items-center gap-3">
+            <a
+              href={`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api/google/oauth/start`}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+            >
+              <LinkIcon className="w-4 h-4" />
+              Connect Google Calendar
+            </a>
+            <span className="text-xs text-slate-500">Requires server to be running with OAuth env vars.</span>
+          </div>
         </div>
       </div>
     </div>

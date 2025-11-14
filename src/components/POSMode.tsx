@@ -66,6 +66,7 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
   const [existingClients, setExistingClients] = useState<any[]>([]);
   const [clientsLoading, setClientsLoading] = useState(false);
   const [error, setError] = useState<string>('');
+  const [orderDate, setOrderDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [userRole, setUserRole] = useState<'admin' | 'manager' | 'sales' | null>(null);
   // Provider pricing editor state
   const [showPricingModal, setShowPricingModal] = useState(false);
@@ -85,6 +86,9 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
   // Live Show tracking & payments
   const [liveShows, setLiveShows] = useState<LiveShow[]>([]);
   const [liveShowsLoading, setLiveShowsLoading] = useState(false);
+  const [lsPage, setLsPage] = useState(1);
+  const LS_PAGE_SIZE = 5;
+  const [lsTotal, setLsTotal] = useState(0);
   const [paymentsMap, setPaymentsMap] = useState<Record<string, LiveShowPayment[]>>({});
   const [quotationsMap, setQuotationsMap] = useState<Record<string, LiveShowQuotation[]>>({});
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -155,7 +159,11 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
           }));
           const withLocal = (mapped as any).map((prov: any) => {
             try {
-              const raw = localStorage.getItem(`providerPricing_${prov.id}`);
+              let raw: string | null = localStorage.getItem(`providerPricing_${prov.id}`);
+              if (!raw) {
+                const nameKey = `providerPricing_byName_${String(prov.name || '').toLowerCase()}`;
+                raw = localStorage.getItem(nameKey);
+              }
               if (raw) {
                 const parsed = JSON.parse(raw);
                 if (parsed && typeof parsed === 'object') {
@@ -173,7 +181,11 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
         // If no DB providers, ensure at least default static ones
         const withLocalDefaults = DELIVERY_PROVIDERS.map((prov) => {
           try {
-            const raw = localStorage.getItem(`providerPricing_${prov.id}`);
+            let raw: string | null = localStorage.getItem(`providerPricing_${prov.id}`);
+            if (!raw) {
+              const nameKey = `providerPricing_byName_${prov.name.toLowerCase()}`;
+              raw = localStorage.getItem(nameKey);
+            }
             if (raw) {
               const parsed = JSON.parse(raw);
               if (parsed && typeof parsed === 'object') {
@@ -192,7 +204,11 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
         console.warn('Failed to load delivery providers; using defaults', e);
         const withLocalDefaults = DELIVERY_PROVIDERS.map((prov) => {
           try {
-            const raw = localStorage.getItem(`providerPricing_${prov.id}`);
+            let raw: string | null = localStorage.getItem(`providerPricing_${prov.id}`);
+            if (!raw) {
+              const nameKey = `providerPricing_byName_${prov.name.toLowerCase()}`;
+              raw = localStorage.getItem(nameKey);
+            }
             if (raw) {
               const parsed = JSON.parse(raw);
               if (parsed && typeof parsed === 'object') {
@@ -348,37 +364,61 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
     );
   }, [mode, selectedProviderId, effectiveProducts]);
 
-  // Load existing live shows when Live Show mode selected
+  // Load existing live shows when Live Show mode selected or page changes
   useEffect(() => {
     if (mode !== 'live_show') return;
     (async () => {
-      setLiveShowsLoading(true);
-      try {
-        const shows = await supabaseHelpers.getLiveShows();
-        setLiveShows(shows);
-        const pMap: Record<string, LiveShowPayment[]> = {};
-        const qMap: Record<string, LiveShowQuotation[]> = {};
-        for (const s of shows) {
-          try {
-            pMap[s.id] = await supabaseHelpers.getLiveShowPayments(s.id);
-          } catch (e) {
-            pMap[s.id] = [];
-          }
-          try {
-            qMap[s.id] = await supabaseHelpers.getLiveShowQuotations(s.id);
-          } catch (e) {
-            qMap[s.id] = [];
-          }
-        }
-        setPaymentsMap(pMap);
-        setQuotationsMap(qMap);
-      } catch (e) {
-        console.warn('Failed to load live shows', e);
-      } finally {
-        setLiveShowsLoading(false);
-      }
+      await loadLiveShowsPage();
     })();
-  }, [mode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, lsPage]);
+
+  async function loadLiveShowsPage(pageOverride?: number) {
+    const pageToLoad = typeof pageOverride === 'number' ? pageOverride : lsPage;
+    setLiveShowsLoading(true);
+    try {
+      const { data, total } = await supabaseHelpers.getLiveShowsPage(pageToLoad, LS_PAGE_SIZE);
+      setLiveShows(data);
+      setLsTotal(total);
+      const pMap: Record<string, LiveShowPayment[]> = {};
+      const qMap: Record<string, LiveShowQuotation[]> = {};
+      for (const s of data) {
+        try {
+          pMap[s.id] = await supabaseHelpers.getLiveShowPayments(s.id);
+        } catch (e) {
+          pMap[s.id] = [];
+        }
+        try {
+          qMap[s.id] = await supabaseHelpers.getLiveShowQuotations(s.id);
+        } catch (e) {
+          qMap[s.id] = [];
+        }
+      }
+      setPaymentsMap(pMap);
+      setQuotationsMap(qMap);
+    } catch (e) {
+      console.warn('Failed to load live shows page', e);
+    } finally {
+      setLiveShowsLoading(false);
+    }
+  }
+
+  async function handleDeleteLiveShow(id: string) {
+    const confirmed = confirm('Delete this live show? This action cannot be undone.');
+    if (!confirmed) return;
+    try {
+      await supabaseHelpers.deleteLiveShow(id);
+      const afterTotal = Math.max(0, lsTotal - 1);
+      const totalPages = Math.max(1, Math.ceil(afterTotal / LS_PAGE_SIZE));
+      const nextPage = Math.min(lsPage, totalPages);
+      setLsTotal(afterTotal);
+      setLsPage(nextPage);
+      await loadLiveShowsPage(nextPage);
+    } catch (e) {
+      console.error('Failed to delete live show', e);
+      alert('Failed to delete live show. Please try again.');
+    }
+  }
 
   function sumPayments(payments: LiveShowPayment[], type?: 'advance' | 'full') {
     const list = type ? payments.filter((p) => p.payment_type === type) : payments;
@@ -432,16 +472,19 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
       const balanceBefore = Math.max(0, estimated - (advancePaid + fullPaid - amt));
       const balanceAfter = Math.max(0, estimated - (advancePaid + fullPaid));
 
+      // Load client details for Bill To
+      const client = await supabaseHelpers.getClientById(clientId);
+
       const receiptDoc = await supabaseHelpers.createDocument({
         document_type: 'invoice',
         document_number: docNumber,
         client_id: clientId,
-        client_name: '',
-        client_email: '',
-        client_phone: '',
-        client_address: '',
-        client_trn: '',
-        client_emirate: '',
+        client_name: client?.name || '',
+        client_email: client?.email || '',
+        client_phone: client?.phone || '',
+        client_address: client?.address || '',
+        client_trn: (client as any)?.trn || '',
+        client_emirate: client?.emirate || '',
         issue_date: issueDate,
         subtotal: amt,
         tax_amount: 0,
@@ -451,6 +494,9 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
         terms: '',
         status: 'issued',
         origin: 'dashboard',
+        payment_method: paymentMethodLS,
+        payment_card_amount: 0,
+        payment_cash_amount: paymentMethodLS === 'cash' ? amt : 0,
         delivery_fee: 0,
         delivery_provider_id: null,
       });
@@ -583,6 +629,8 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
     };
     try {
       localStorage.setItem(`providerPricing_${provider.id}`, JSON.stringify(payload));
+      const nameKey = `providerPricing_byName_${String(provider.name || '').toLowerCase()}`;
+      localStorage.setItem(nameKey, JSON.stringify(payload));
     } catch {}
     setProviders((prev) =>
       prev.map((p: any) =>
@@ -779,6 +827,7 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                 }
               : null,
           discountAmount: discountAmount,
+          issueDate: orderDate,
         }
       );
 
@@ -810,7 +859,7 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
     if (existingClients.length === 0) {
       setClientsLoading(true);
       try {
-        const clients = await supabaseHelpers.getClients();
+        const clients = await supabaseHelpers.getClientsCached();
         setExistingClients(clients);
       } catch (e) {
         console.error('Failed to load clients', e);
@@ -1005,21 +1054,7 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                     <button
                       onClick={async () => {
                         // Manual refresh
-                        setLiveShowsLoading(true);
-                        try {
-                          const shows = await supabaseHelpers.getLiveShows();
-                          setLiveShows(shows);
-                          const pMap: Record<string, LiveShowPayment[]> = {};
-                          const qMap: Record<string, LiveShowQuotation[]> = {};
-                          for (const s of shows) {
-                            try { pMap[s.id] = await supabaseHelpers.getLiveShowPayments(s.id); } catch { pMap[s.id] = []; }
-                            try { qMap[s.id] = await supabaseHelpers.getLiveShowQuotations(s.id); } catch { qMap[s.id] = []; }
-                          }
-                          setPaymentsMap(pMap);
-                          setQuotationsMap(qMap);
-                        } finally {
-                          setLiveShowsLoading(false);
-                        }
+                        await loadLiveShowsPage();
                       }}
                       className="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50"
                     >
@@ -1096,6 +1131,13 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                                     {s.status === 'fully_paid' && (
                                       <span className="text-xs text-emerald-700">Completed</span>
                                     )}
+                                    <button
+                                      onClick={() => handleDeleteLiveShow(s.id)}
+                                      className="text-xs px-2 py-1 border border-red-200 text-red-700 rounded hover:bg-red-50 inline-flex items-center gap-1"
+                                      title="Delete Live Show"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                                    </button>
                                   </div>
                                 </td>
                               </tr>
@@ -1103,6 +1145,30 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                           })}
                         </tbody>
                       </table>
+                      {(() => {
+                        const totalPages = Math.max(1, Math.ceil(lsTotal / LS_PAGE_SIZE));
+                        return (
+                          <div className="flex items-center justify-between px-2 py-2 border border-t-0 border-slate-200 rounded-b-lg bg-slate-50">
+                            <div className="text-xs text-slate-600">Page {lsPage} of {totalPages} — {lsTotal} total</div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setLsPage((p) => Math.max(1, p - 1))}
+                                disabled={lsPage <= 1}
+                                className={`text-xs px-2 py-1 rounded border ${lsPage <= 1 ? 'border-slate-200 text-slate-300 cursor-not-allowed' : 'border-slate-200 text-slate-700 hover:bg-white'}`}
+                              >
+                                Prev
+                              </button>
+                              <button
+                                onClick={() => setLsPage((p) => Math.min(totalPages, p + 1))}
+                                disabled={lsPage >= totalPages}
+                                className={`text-xs px-2 py-1 rounded border ${lsPage >= totalPages ? 'border-slate-200 text-slate-300 cursor-not-allowed' : 'border-slate-200 text-slate-700 hover:bg-white'}`}
+                              >
+                                Next
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -1581,6 +1647,21 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                         <option key={e} value={e}>{e}</option>
                       ))}
                     </select>
+                  </div>
+                </div>
+              )}
+
+              {mode !== 'live_show' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Order Date</label>
+                    <input
+                      type="date"
+                      value={orderDate}
+                      onChange={(e) => setOrderDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">Defaults to today; used as issue date.</p>
                   </div>
                 </div>
               )}

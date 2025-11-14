@@ -12,14 +12,20 @@ const DOCUMENT_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
 const kitchenBatchPagesCache: Map<string, { data: KitchenBatch[]; total: number; timestamp: number }> = new Map();
 const KITCHEN_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
 
+// Paged cache for live shows
+const liveShowPagesCache: Map<string, { data: LiveShow[]; total: number; timestamp: number }> = new Map();
+const LIVE_SHOW_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
+
 // Cache for catalog items and delivery providers (used by Dashboard/Admin/POS)
-let itemsCache: { data: Item[]; timestamp: number } | null = null;
-let deliveryProvidersCache: { data: DeliveryProvider[]; timestamp: number } | null = null;
+ let itemsCache: { data: Item[]; timestamp: number } | null = null;
+ let deliveryProvidersCache: { data: DeliveryProvider[]; timestamp: number } | null = null;
+ let liveShowsCache: { data: LiveShow[]; timestamp: number } | null = null;
 const LIST_CACHE_TTL_MS = 60_000; // 60 seconds
 
 // LocalStorage TTLs (longer-lived than in-memory)
 const LOCAL_LIST_CACHE_TTL_MS = 15 * 60_000; // 15 minutes
 const LOCAL_PAGE_CACHE_TTL_MS = 15 * 60_000; // 15 minutes
+const LOCAL_CLIENTS_CACHE_TTL_MS = 60 * 60_000; // 60 minutes (frequently used in POS)
 
 function nowMs() {
   return Date.now();
@@ -124,6 +130,25 @@ function invalidateKitchenBatchPagesCache() {
   lsRemoveByPrefix('cache:kitchen_batches:page:');
 }
 
+function liveShowPageCacheKey(page: number, pageSize: number) {
+  return `${page}:${pageSize}`;
+}
+
+function isLiveShowPageCacheValid(key: string) {
+  const entry = liveShowPagesCache.get(key);
+  return !!entry && nowMs() - entry.timestamp < LIVE_SHOW_PAGES_CACHE_TTL_MS;
+}
+
+function setLiveShowPageCache(key: string, payload: { data: LiveShow[]; total: number }) {
+  liveShowPagesCache.set(key, { ...payload, timestamp: nowMs() });
+}
+
+function invalidateLiveShowPagesCache() {
+  liveShowPagesCache.clear();
+  // also clear persisted cache
+  lsRemoveByPrefix('cache:live_shows:page:');
+}
+
 function isItemsCacheValid() {
   return itemsCache !== null && nowMs() - itemsCache.timestamp < LIST_CACHE_TTL_MS;
 }
@@ -145,10 +170,23 @@ function setDeliveryProvidersCache(data: DeliveryProvider[]) {
   deliveryProvidersCache = { data, timestamp: nowMs() };
 }
 
-function invalidateDeliveryProvidersCache() {
-  deliveryProvidersCache = null;
-  lsRemove('cache:delivery_providers:list');
-}
+  function invalidateDeliveryProvidersCache() {
+    deliveryProvidersCache = null;
+    lsRemove('cache:delivery_providers:list');
+  }
+
+  function isLiveShowsCacheValid() {
+    return !!(liveShowsCache && nowMs() - liveShowsCache.timestamp < LIST_CACHE_TTL_MS);
+  }
+
+  function setLiveShowsCache(data: LiveShow[]) {
+    liveShowsCache = { data, timestamp: nowMs() };
+  }
+
+  function invalidateLiveShowsCache() {
+    liveShowsCache = null;
+    lsRemove('cache:live_shows:list');
+  }
 
 async function generateDocumentNumberInternal(type: 'quotation' | 'invoice' | 'delivery_note'): Promise<string> {
   const prefix = type === 'quotation' ? 'q' : type === 'invoice' ? 'r' : 'd';
@@ -472,12 +510,59 @@ export const supabaseHelpers = {
   },
 
   async getLiveShows(): Promise<LiveShow[]> {
+    // Try in-memory cache first
+    if (isLiveShowsCacheValid()) {
+      return liveShowsCache!.data;
+    }
+    // Then check localStorage
+    const lsKey = 'cache:live_shows:list';
+    const lsCached = lsGet<LiveShow[]>(lsKey);
+    if (lsCached && nowMs() - lsCached.timestamp < LOCAL_LIST_CACHE_TTL_MS) {
+      setLiveShowsCache(lsCached.data as LiveShow[]);
+      return lsCached.data as LiveShow[];
+    }
+    // Fallback to Supabase
     const { data, error } = await supabase
       .from('live_shows')
       .select('*')
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return (data || []) as LiveShow[];
+    const shows = (data || []) as LiveShow[];
+    setLiveShowsCache(shows);
+    lsSet(lsKey, { data: shows });
+    return shows;
+  },
+
+  async getLiveShowsPage(page: number, pageSize: number): Promise<{ data: LiveShow[]; total: number }> {
+    const companyId = await supabaseHelpers.resolveCompanyId();
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+    const key = liveShowPageCacheKey(page, pageSize);
+    // Try in-memory cache first
+    if (isLiveShowPageCacheValid(key)) {
+      const cached = liveShowPagesCache.get(key)!;
+      return { data: cached.data, total: cached.total };
+    }
+    // Then check localStorage (per company)
+    const lsKey = `cache:live_shows:page:${companyId}:${key}`;
+    const lsCached = lsGet<LiveShow[]>(lsKey);
+    if (lsCached && nowMs() - lsCached.timestamp < LOCAL_PAGE_CACHE_TTL_MS) {
+      const payload = { data: (lsCached.data || []) as LiveShow[], total: Number((lsCached as any).total) || 0 };
+      setLiveShowPageCache(key, payload);
+      return payload;
+    }
+    // Fallback to Supabase
+    const { data, error, count } = await supabase
+      .from('live_shows')
+      .select('*', { count: 'planned' })
+      .eq('company_id', companyId)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+    if (error) throw error;
+    const payload = { data: (data || []) as LiveShow[], total: count || 0 };
+    setLiveShowPageCache(key, payload);
+    lsSet(lsKey, payload);
+    return payload;
   },
 
   async getLiveShowById(id: string): Promise<LiveShow | null> {
@@ -631,6 +716,9 @@ export const supabaseHelpers = {
     if (qErr) throw qErr;
     const quotation = qRow as LiveShowQuotation;
 
+    // Invalidate caches so UI reflects the new live show
+    invalidateLiveShowsCache();
+    invalidateLiveShowPagesCache();
     return { show, quotation, document: doc };
   },
 
@@ -660,6 +748,92 @@ export const supabaseHelpers = {
       .eq('id', liveShowId);
     if (upErr) throw upErr;
 
+    // Invalidate caches so status changes reflect in list immediately
+    invalidateLiveShowsCache();
+    invalidateLiveShowPagesCache();
+    return data as LiveShowPayment;
+  },
+
+  async createAdvanceReceiptForLiveShow(liveShowId: string, options: { amount: number; method: LiveShowPaymentMethod; issueDate?: string }): Promise<Document> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const show = await supabaseHelpers.getLiveShowById(liveShowId);
+    if (!show) throw new Error('Live show not found');
+
+    const client = await supabaseHelpers.getClientById(show.client_id);
+    if (!client) throw new Error('Client not found for live show');
+
+    const settings = await supabaseHelpers.getCompanySettings();
+    const taxRate = settings?.tax_rate || 0;
+    const subtotal = Math.max(0, Number(options.amount || 0));
+    const taxableBase = Math.max(subtotal, 0);
+    const taxAmount = (taxableBase * taxRate) / 100;
+    const total = taxableBase + taxAmount;
+
+    const issueDate = options.issueDate || new Date().toISOString().split('T')[0];
+    const invoiceNumber = await generateDocumentNumberInternal('invoice');
+
+    const notes = `Advance Payment for Live Show ${show.show_number}` +
+      `${show.item_name ? ` (${show.item_name})` : ''}` +
+      `${show.people_count ? `, ${show.people_count} people` : ''}` +
+      `${show.location ? ` at ${show.location}` : ''}` +
+      `${show.show_date ? ` on ${show.show_date}` : ''}` +
+      `${show.show_time ? ` at ${show.show_time}` : ''}`;
+
+    const normalizedMethod = options.method === 'cash' ? 'cash' : 'transfer';
+    const paymentCashAmount = normalizedMethod === 'cash' ? total : 0;
+
+    const invoice = await supabaseHelpers.createDocument({
+      document_type: 'invoice',
+      document_number: invoiceNumber,
+      client_id: client.id,
+      client_name: client.name,
+      client_email: client.email || '',
+      client_phone: client.phone || '',
+      client_address: client.address || '',
+      client_trn: client.trn || '',
+      client_emirate: client.emirate || '',
+      issue_date: issueDate,
+      subtotal,
+      tax_amount: taxAmount,
+      discount_amount: 0,
+      total,
+      notes,
+      terms: settings?.default_terms || '',
+      status: 'paid',
+      origin: 'dashboard',
+      payment_method: normalizedMethod,
+      payment_card_amount: 0,
+      payment_cash_amount: paymentCashAmount,
+      delivery_fee: 0,
+      delivery_provider_id: null,
+    });
+
+    await supabaseHelpers.createDocumentItem({
+      document_id: invoice.id,
+      description: `Advance Payment (${show.show_number})`,
+      quantity: 1,
+      weight: 0,
+      sell_by: 'unit',
+      item_id: null,
+      unit_price: subtotal,
+      amount: subtotal,
+    });
+
+    return invoice;
+  },
+
+  async updateLiveShowPaymentDate(paymentId: string, newDateISO: string): Promise<LiveShowPayment> {
+    // Updates the created_at timestamp of a live_show_payment.
+    // Requires appropriate role permissions (admin/manager) per RLS policies.
+    const { data, error } = await supabase
+      .from('live_show_payments')
+      .update({ created_at: newDateISO })
+      .eq('id', paymentId)
+      .select('*')
+      .single();
+    if (error) throw error;
     return data as LiveShowPayment;
   },
 
@@ -671,6 +845,79 @@ export const supabaseHelpers = {
       .select('*')
       .single();
     if (error) throw error;
+    // Invalidate caches so cancellation reflects in list immediately
+    invalidateLiveShowsCache();
+    invalidateLiveShowPagesCache();
+    return data as LiveShow;
+  },
+
+  async deleteLiveShow(id: string): Promise<void> {
+    // Delete any linked quotation documents first (DB cascades will remove rows in live_show_quotations/payments)
+    try {
+      const { data: qRows, error: qErr } = await supabase
+        .from('live_show_quotations')
+        .select('quotation_number')
+        .eq('live_show_id', id);
+      if (qErr) throw qErr;
+      const quotationNumbers = (qRows || []).map((q: any) => q.quotation_number).filter(Boolean);
+      for (const qNum of quotationNumbers) {
+        const { data: docRow, error: docErr } = await supabase
+          .from('documents')
+          .select('id')
+          .eq('document_type', 'quotation')
+          .eq('document_number', qNum)
+          .maybeSingle();
+        if (docErr) throw docErr;
+        const docId = docRow?.id as string | undefined;
+        if (docId) {
+          await supabaseHelpers.deleteDocument(docId);
+        }
+      }
+    } catch (e) {
+      // Non-fatal; proceed with live show deletion even if quotations cleanup fails
+      console.warn('Quotation document cleanup failed during live show delete', e);
+    }
+
+    const { error } = await supabase
+      .from('live_shows')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+    // Invalidate caches so deletion reflects in list immediately
+    invalidateLiveShowsCache();
+    invalidateLiveShowPagesCache();
+  },
+
+  async getClientById(id: string): Promise<Client | null> {
+    const { data, error } = await supabase
+      .from('clients')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    return (data || null) as Client | null;
+  },
+
+  async updateLiveShow(id: string, updates: Partial<Pick<LiveShow, 'show_date' | 'show_time' | 'location' | 'item_name' | 'kg' | 'people_count' | 'notes' | 'status'>>): Promise<LiveShow> {
+    const { data, error } = await supabase
+      .from('live_shows')
+      .update({
+        show_date: updates.show_date ?? null,
+        show_time: updates.show_time ?? null,
+        location: updates.location ?? null,
+        item_name: updates.item_name ?? null,
+        kg: typeof updates.kg === 'number' ? updates.kg : null,
+        people_count: typeof updates.people_count === 'number' ? updates.people_count : null,
+        notes: updates.notes ?? null,
+        status: updates.status ?? undefined,
+      })
+      .eq('id', id)
+      .select('*')
+      .single();
+    if (error) throw error;
+    // Invalidate caches so updates reflect in lists immediately
+    invalidateLiveShowsCache();
+    invalidateLiveShowPagesCache();
     return data as LiveShow;
   },
 
@@ -1247,6 +1494,25 @@ export const supabaseHelpers = {
     return data || [];
   },
 
+  /**
+   * Fetch delivery notes for POS deliveries within a date range.
+   * Uses `issue_date` to determine scheduling and only returns `delivery_note` documents
+   * created via POS Delivery (`origin = 'pos_delivery'`).
+   */
+  async getDeliveryNotesBetween(startDate: string, endDate: string): Promise<Document[]> {
+    const { data, error } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('document_type', 'delivery_note')
+      .eq('origin', 'pos_delivery')
+      .gte('issue_date', startDate)
+      .lte('issue_date', endDate)
+      .order('issue_date', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data || []) as Document[];
+  },
+
   // Cached variant for dashboard/table views to avoid repeated DB loads
   async getDocumentsCached(options?: { forceRefresh?: boolean }): Promise<Document[]> {
     if (!options?.forceRefresh && isDocumentsCacheValid()) {
@@ -1393,6 +1659,23 @@ export const supabaseHelpers = {
     return data || [];
   },
 
+  // Local-storage cached variant for POS: 1-hour TTL
+  async getClientsCached(options?: { forceRefresh?: boolean }): Promise<Client[]> {
+    const companyId = await supabaseHelpers.resolveCompanyId();
+    const key = `cache:clients:list:${companyId || 'default'}`;
+
+    if (!options?.forceRefresh) {
+      const cached = lsGet<Client[]>(key);
+      if (cached && nowMs() - cached.timestamp < LOCAL_CLIENTS_CACHE_TTL_MS) {
+        return cached.data;
+      }
+    }
+
+    const clients = await supabaseHelpers.getClients();
+    lsSet(key, { data: clients, timestamp: nowMs() });
+    return clients;
+  },
+
   async createClient(clientData: Omit<Client, 'id' | 'created_at' | 'updated_at' | 'user_id'>): Promise<Client> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
@@ -1407,6 +1690,8 @@ export const supabaseHelpers = {
       .single();
 
     if (error) throw error;
+    // Invalidate local cache so POS sees new clients immediately
+    lsRemoveByPrefix('cache:clients:list:');
     return data;
   },
 
@@ -1447,6 +1732,7 @@ export const supabaseHelpers = {
         managed?: boolean;
       } | null;
       discountAmount?: number;
+      issueDate?: string;
     }
   ): Promise<Document> {
     const { data: { user } } = await supabase.auth.getUser();
@@ -1473,7 +1759,7 @@ export const supabaseHelpers = {
       });
     }
 
-    const issueDate = new Date().toISOString().split('T')[0];
+    const issueDate = options.issueDate || new Date().toISOString().split('T')[0];
 
     const subtotal = items.reduce((sum, item) => sum + (item.amount || 0), 0);
     const settings = await supabaseHelpers.getCompanySettings();
