@@ -190,7 +190,10 @@ Role resolution: mapped via `company_users` table (`getCurrentUserRole`) with RL
   - `name`, `sku`, `price`, `sell_by`
 
 - DeliveryProvider
-  - `name`, `phone`, `method`, `managed`
+  - `name`, `phone`, `method`, `managed`, `price_multiplier`
+
+- DeliveryProviderOverride
+  - `company_id`, `provider_id`, `item_id`, `sku`, `price`, `created_at`
 
 - Live Shows
   - `live_shows`

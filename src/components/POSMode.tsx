@@ -72,6 +72,8 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [pricingForm, setPricingForm] = useState<Record<string, string>>({});
   const [multiplierInput, setMultiplierInput] = useState<string>('');
+  // Track if the user has started editing pricing, to avoid overwriting inputs
+  const [pricingDirty, setPricingDirty] = useState(false);
 
   // Submission guard and loading indicator (must be inside component)
   const [saving, setSaving] = useState(false);
@@ -158,74 +160,22 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
             managerPhone: '',
             managed: Boolean(p.managed),
             // Merge optional pricing policy from static defaults by name
-            priceMultiplier: defaultsByName[p.name.toLowerCase()]?.priceMultiplier,
+            priceMultiplier:
+              typeof (p as any).price_multiplier === 'number'
+                ? Number((p as any).price_multiplier)
+                : defaultsByName[p.name.toLowerCase()]?.priceMultiplier,
             priceOverrides: defaultsByName[p.name.toLowerCase()]?.priceOverrides,
           }));
-          const withLocal = (mapped as any).map((prov: any) => {
-            try {
-              let raw: string | null = localStorage.getItem(`providerPricing_${prov.id}`);
-              if (!raw) {
-                const nameKey = `providerPricing_byName_${String(prov.name || '').toLowerCase()}`;
-                raw = localStorage.getItem(nameKey);
-              }
-              if (raw) {
-                const parsed = JSON.parse(raw);
-                if (parsed && typeof parsed === 'object') {
-                  if (typeof parsed.priceMultiplier !== 'undefined') prov.priceMultiplier = Number(parsed.priceMultiplier);
-                  if (Array.isArray(parsed.overrides)) prov.priceOverrides = parsed.overrides;
-                }
-              }
-            } catch {}
-            return prov;
-          });
-          setProviders(withLocal as any);
+          setProviders(mapped as any);
           if (!selectedProviderId) setSelectedProviderId(mapped[0].id);
           return;
         }
-        // If no DB providers, ensure at least default static ones
-        const withLocalDefaults = DELIVERY_PROVIDERS.map((prov) => {
-          try {
-            let raw: string | null = localStorage.getItem(`providerPricing_${prov.id}`);
-            if (!raw) {
-              const nameKey = `providerPricing_byName_${prov.name.toLowerCase()}`;
-              raw = localStorage.getItem(nameKey);
-            }
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              if (parsed && typeof parsed === 'object') {
-                const updated: any = { ...prov };
-                if (typeof parsed.priceMultiplier !== 'undefined') updated.priceMultiplier = Number(parsed.priceMultiplier);
-                if (Array.isArray(parsed.overrides)) updated.priceOverrides = parsed.overrides;
-                return updated;
-              }
-            }
-          } catch {}
-          return prov as any;
-        });
-        setProviders(withLocalDefaults as any);
+        // If no DB providers, fallback to static ones without local persistence
+        setProviders(DELIVERY_PROVIDERS as any);
         if (!selectedProviderId && DELIVERY_PROVIDERS.length > 0) setSelectedProviderId(DELIVERY_PROVIDERS[0].id);
       } catch (e) {
         console.warn('Failed to load delivery providers; using defaults', e);
-        const withLocalDefaults = DELIVERY_PROVIDERS.map((prov) => {
-          try {
-            let raw: string | null = localStorage.getItem(`providerPricing_${prov.id}`);
-            if (!raw) {
-              const nameKey = `providerPricing_byName_${prov.name.toLowerCase()}`;
-              raw = localStorage.getItem(nameKey);
-            }
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              if (parsed && typeof parsed === 'object') {
-                const updated: any = { ...prov };
-                if (typeof parsed.priceMultiplier !== 'undefined') updated.priceMultiplier = Number(parsed.priceMultiplier);
-                if (Array.isArray(parsed.overrides)) updated.priceOverrides = parsed.overrides;
-                return updated;
-              }
-            }
-          } catch {}
-          return prov as any;
-        });
-        setProviders(withLocalDefaults as any);
+        setProviders(DELIVERY_PROVIDERS as any);
         if (!selectedProviderId && DELIVERY_PROVIDERS.length > 0) setSelectedProviderId(DELIVERY_PROVIDERS[0].id);
       }
     })();
@@ -235,19 +185,38 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
   // Initialize pricing form whenever provider or products change
   useEffect(() => {
     if (!selectedProvider) return;
-    setMultiplierInput(
-      typeof (selectedProvider as any).priceMultiplier !== 'undefined' && (selectedProvider as any).priceMultiplier !== null
-        ? String(Number((selectedProvider as any).priceMultiplier))
-        : ''
-    );
+    // Load server-backed overrides for selected provider
+    (async () => {
+      try {
+        const overrides = await supabaseHelpers.getDeliveryProviderOverrides(selectedProvider.id);
+        setProviders((prev) => prev.map((p: any) => (p.id === selectedProvider.id ? { ...p, priceOverrides: overrides.map((o) => ({ itemId: o.item_id, sku: o.sku || undefined, price: o.price })) } : p)));
+      } catch (e) {
+        console.warn('Failed to load provider overrides from server', e);
+      }
+    })();
+    // Only initialize inputs if user hasn't started editing
+    if (!pricingDirty) {
+      setMultiplierInput(
+        typeof (selectedProvider as any).priceMultiplier !== 'undefined' && (selectedProvider as any).priceMultiplier !== null
+          ? String(Number((selectedProvider as any).priceMultiplier))
+          : ''
+      );
+    }
     const overrides = (selectedProvider as any).priceOverrides || [];
     const form: Record<string, string> = {};
     for (const prod of products) {
       const ov = overrides.find((o: any) => (o.itemId && o.itemId === prod.id) || (o.sku && o.sku === prod.sku));
       form[prod.id] = typeof ov?.price !== 'undefined' ? String(Number(ov.price)) : '';
     }
-    setPricingForm(form);
-  }, [selectedProviderId, selectedProvider, products]);
+    if (!pricingDirty) {
+      setPricingForm(form);
+    }
+  }, [selectedProviderId, selectedProvider, products, pricingDirty]);
+
+  // Reset dirty state when switching providers
+  useEffect(() => {
+    setPricingDirty(false);
+  }, [selectedProviderId]);
 
   const effectiveProducts = useMemo(() => {
     if (mode !== 'delivery' || !selectedProvider) return products;
@@ -608,12 +577,14 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
   }
 
   function handleOverrideChange(itemId: string, value: string) {
+    setPricingDirty(true);
     setPricingForm((prev) => ({ ...prev, [itemId]: value }));
   }
 
   function saveProviderPricing() {
     const provider = selectedProvider as any;
     if (!provider) return;
+    let providerId = provider.id;
     const overridesArr = Object.entries(pricingForm)
       .map(([itemId, val]) => {
         const parsed = parseFloat(val);
@@ -631,11 +602,29 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
       priceMultiplier: Number.isFinite(multParsed) ? Number(multParsed) : undefined,
       overrides: overridesArr,
     };
-    try {
-      localStorage.setItem(`providerPricing_${provider.id}`, JSON.stringify(payload));
-      const nameKey = `providerPricing_byName_${String(provider.name || '').toLowerCase()}`;
-      localStorage.setItem(nameKey, JSON.stringify(payload));
-    } catch {}
+    (async () => {
+      try {
+        // Ensure provider exists in DB and get its ID
+        const ensured = await supabaseHelpers.findOrCreateDeliveryProvider({ name: provider.name, phone: provider.phone, method: (provider as any).method, managed: provider.managed });
+        providerId = ensured.id;
+        // Persist multiplier
+        if (typeof payload.priceMultiplier !== 'undefined') {
+          await supabaseHelpers.updateDeliveryProvider(providerId, { price_multiplier: payload.priceMultiplier });
+        }
+        // Persist overrides server-side: upsert new ones and delete removed
+        await supabaseHelpers.upsertDeliveryProviderOverrides(
+          providerId,
+          payload.overrides.map((o) => ({ item_id: o.itemId, sku: o.sku, price: o.price }))
+        );
+        const keepIds = payload.overrides.map((o) => o.itemId);
+        await supabaseHelpers.deleteDeliveryProviderOverridesExcept(providerId, keepIds);
+      } catch (e) {
+        console.warn('Failed to persist provider pricing to server', e);
+        const msg = (e && (e as any).message) ? String((e as any).message) : String(e);
+        setError(`Failed to save provider pricing: ${msg}`);
+        return;
+      }
+    })();
     setProviders((prev) =>
       prev.map((p: any) =>
         p.id === provider.id
@@ -1816,7 +1805,10 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                     min="0"
                     step="0.01"
                     value={multiplierInput}
-                    onChange={(e) => setMultiplierInput(e.target.value)}
+                    onChange={(e) => {
+                      setPricingDirty(true);
+                      setMultiplierInput(e.target.value);
+                    }}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg"
                   />
                   <p className="text-[11px] text-slate-500 mt-1">Applied to items without explicit override. Leave blank or 0 to disable.</p>

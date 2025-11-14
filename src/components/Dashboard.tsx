@@ -493,7 +493,8 @@ export default function Dashboard({
               </div>
             )}
             
-            <table className="min-w-[720px] w-full">
+            <div className="overflow-x-auto">
+            <table className="min-w-[680px] w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   {userRole === 'admin' && (
@@ -502,7 +503,7 @@ export default function Dashboard({
                   <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Document
                   </th>
-                  <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider hidden sm:table-cell">
                     Client
                   </th>
                   <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
@@ -511,7 +512,7 @@ export default function Dashboard({
                   <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Total
                   </th>
-                  <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider hidden lg:table-cell">
                     Status
                   </th>
                   <th className="px-3 py-2 sm:px-6 sm:py-4 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
@@ -567,13 +568,13 @@ export default function Dashboard({
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-2 sm:px-6 sm:py-4">
+                    <td className="px-3 py-2 sm:px-6 sm:py-4 hidden sm:table-cell">
                       <p className="font-medium text-slate-800 text-sm sm:text-base">{doc.client_name}</p>
                       <p className="text-xs sm:text-sm text-slate-500">{doc.client_email}</p>
                     </td>
                     <td className="px-3 py-2 sm:px-6 sm:py-4 text-slate-700 text-sm sm:text-base">{doc.issue_date ? formatDate(doc.issue_date) : '-'}</td>
                     <td className="px-3 py-2 sm:px-6 sm:py-4 font-semibold text-slate-800 text-sm sm:text-base">{formatCurrency(Number(doc.total))}</td>
-                    <td className="px-3 py-2 sm:px-6 sm:py-4">
+                    <td className="px-3 py-2 sm:px-6 sm:py-4 hidden lg:table-cell">
                       <span
                         className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
                           doc.status === 'paid'
@@ -628,6 +629,7 @@ export default function Dashboard({
                 })}
               </tbody>
             </table>
+            </div>
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-slate-200">
               <div className="text-xs sm:text-sm text-slate-600">
                 {totalCount > 0
