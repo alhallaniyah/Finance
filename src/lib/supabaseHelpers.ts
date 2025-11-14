@@ -318,6 +318,18 @@ export type DeliveryProvider = {
   phone?: string | null;
   method?: string | null;
   managed?: boolean | null;
+  price_multiplier?: number | null;
+  created_at?: string;
+};
+
+// Delivery provider per-item override (server-backed)
+export type DeliveryProviderOverride = {
+  id: string;
+  company_id?: string | null;
+  provider_id: string;
+  item_id: string;
+  sku?: string | null;
+  price: number;
   created_at?: string;
 };
 
@@ -445,20 +457,28 @@ export const supabaseHelpers = {
   async resolveCompanyId(): Promise<string | null> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
-    // Try company_users first
-    const { data: cu } = await supabase
+    // Try company_users first (handle users in multiple companies by taking the first)
+    const { data: cuRows, error: cuErr } = await supabase
       .from('company_users')
       .select('company_id')
       .eq('user_id', user.id)
-      .maybeSingle();
-    if (cu?.company_id) return cu.company_id as string;
-    // Fallback to company_settings
-    const { data: cs } = await supabase
+      .limit(1);
+    if (cuErr) {
+      console.warn('resolveCompanyId: company_users query error', cuErr);
+    }
+    const cuId = Array.isArray(cuRows) && cuRows.length > 0 ? cuRows[0]?.company_id : null;
+    if (cuId) return cuId as string;
+    // Fallback to company_settings (take the first if multiple rows)
+    const { data: csRows, error: csErr } = await supabase
       .from('company_settings')
       .select('company_id')
       .eq('user_id', user.id)
-      .maybeSingle();
-    return (cs?.company_id as string) || null;
+      .limit(1);
+    if (csErr) {
+      console.warn('resolveCompanyId: company_settings query error', csErr);
+    }
+    const csId = Array.isArray(csRows) && csRows.length > 0 ? csRows[0]?.company_id : null;
+    return (csId as string) || null;
   },
 
   async getCurrentUserRole(): Promise<'admin' | 'manager' | 'sales' | null> {
@@ -924,7 +944,7 @@ export const supabaseHelpers = {
   async getDeliveryProviderById(id: string): Promise<{ id: string; name: string; phone?: string; method?: string; managed?: boolean } | null> {
     const { data, error } = await supabase
       .from('delivery_providers')
-      .select('id, name, phone, method, managed')
+      .select('id, name, phone, method, managed, price_multiplier')
       .eq('id', id)
       .maybeSingle();
     if (error) throw error;
@@ -946,13 +966,75 @@ export const supabaseHelpers = {
     // Fetch from Supabase
     const { data, error } = await supabase
       .from('delivery_providers')
-      .select('id, company_id, name, phone, method, managed, created_at')
+      .select('id, company_id, name, phone, method, managed, price_multiplier, created_at')
       .order('name', { ascending: true });
     if (error) throw error;
     const providers = (data || []) as DeliveryProvider[];
     setDeliveryProvidersCache(providers);
     lsSet(lsKey, { data: providers });
     return providers;
+  },
+
+  // Delivery Provider Overrides (server-backed)
+  async getDeliveryProviderOverrides(providerId: string): Promise<DeliveryProviderOverride[]> {
+    const { data, error } = await supabase
+      .from('delivery_provider_overrides')
+      .select('id, company_id, provider_id, item_id, sku, price, created_at')
+      .eq('provider_id', providerId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data || []) as DeliveryProviderOverride[];
+  },
+
+  async upsertDeliveryProviderOverrides(providerId: string, overrides: { item_id: string; sku?: string | null; price: number }[]): Promise<void> {
+    // Resolve company_id from the provider row to ensure correct scoping
+    const { data: provRows, error: provErr } = await supabase
+      .from('delivery_providers')
+      .select('company_id')
+      .eq('id', providerId)
+      .limit(1);
+    if (provErr) throw provErr;
+    const providerCompanyId = Array.isArray(provRows) && provRows.length > 0 ? (provRows[0]?.company_id as string | null) : null;
+    const companyId = providerCompanyId || await supabaseHelpers.resolveCompanyId();
+    if (!companyId) throw new Error('No company scope for overrides');
+    const rows = overrides.map((o) => ({
+      company_id: companyId,
+      provider_id: providerId,
+      item_id: o.item_id,
+      sku: o.sku ?? null,
+      price: o.price,
+    }));
+    const { error } = await supabase
+      .from('delivery_provider_overrides')
+      .upsert(rows, { onConflict: 'company_id,provider_id,item_id' })
+      .select('id');
+    if (error) throw error;
+  },
+
+  async deleteDeliveryProviderOverridesExcept(providerId: string, keepItemIds: string[]): Promise<void> {
+    // Resolve company_id from the provider row to ensure correct scoping
+    const { data: provRows, error: provErr } = await supabase
+      .from('delivery_providers')
+      .select('company_id')
+      .eq('id', providerId)
+      .limit(1);
+    if (provErr) throw provErr;
+    const providerCompanyId = Array.isArray(provRows) && provRows.length > 0 ? (provRows[0]?.company_id as string | null) : null;
+    const companyId = providerCompanyId || await supabaseHelpers.resolveCompanyId();
+    if (!companyId) throw new Error('No company scope for overrides');
+    // Delete any overrides for this provider that are not in keepItemIds
+    const query = supabase
+      .from('delivery_provider_overrides')
+      .delete()
+      .eq('provider_id', providerId)
+      .eq('company_id', companyId);
+    if (keepItemIds.length > 0) {
+      // PostgREST expects not.in.(a,b,c) format; build explicit list
+      const list = `(${keepItemIds.join(',')})`;
+      query.not('item_id', 'in', list);
+    }
+    const { error } = await query;
+    if (error) throw error;
   },
 
   // ===== Kitchen Stopwatch Helpers =====
@@ -1408,7 +1490,7 @@ export const supabaseHelpers = {
     return res;
   },
 
-  async createDeliveryProvider(payload: { name: string; phone?: string; method?: string; managed?: boolean }): Promise<DeliveryProvider> {
+  async createDeliveryProvider(payload: { name: string; phone?: string; method?: string; managed?: boolean; price_multiplier?: number }): Promise<DeliveryProvider> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
@@ -1418,20 +1500,21 @@ export const supabaseHelpers = {
       phone: payload.phone ?? null,
       method: payload.method ?? null,
       managed: payload.managed ?? false,
+      price_multiplier: typeof payload.price_multiplier === 'number' ? payload.price_multiplier : null,
     };
     if (companyId) insertPayload.company_id = companyId;
 
     const { data, error } = await supabase
       .from('delivery_providers')
       .insert(insertPayload)
-      .select('id, company_id, name, phone, method, managed, created_at')
+      .select('id, company_id, name, phone, method, managed, price_multiplier, created_at')
       .single();
     if (error) throw error;
     invalidateDeliveryProvidersCache();
     return data as DeliveryProvider;
   },
 
-  async updateDeliveryProvider(id: string, updates: { name?: string; phone?: string | null; method?: string | null; managed?: boolean }): Promise<void> {
+  async updateDeliveryProvider(id: string, updates: { name?: string; phone?: string | null; method?: string | null; managed?: boolean; price_multiplier?: number | null }): Promise<void> {
     const { error } = await supabase
       .from('delivery_providers')
       .update({
@@ -1439,6 +1522,8 @@ export const supabaseHelpers = {
         phone: updates.phone ?? null,
         method: updates.method ?? null,
         managed: updates.managed,
+        // Only update price_multiplier if provided; leave untouched if undefined
+        price_multiplier: (typeof updates.price_multiplier === 'number') ? updates.price_multiplier : (updates.price_multiplier === null ? null : undefined),
       })
       .eq('id', id);
     if (error) throw error;

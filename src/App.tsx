@@ -17,6 +17,7 @@ import LiveShows from './components/LiveShows';
 import LiveShowsAll from './components/LiveShowsAll';
 import LiveShowDetail from './components/LiveShowDetail';
 import CalendarView from './components/CalendarView';
+import { Menu } from 'lucide-react';
 
 type View = 'dashboard' | 'create' | 'edit' | 'view' | 'settings' | 'pos' | 'admin' | 'kitchen' | 'kitchen_form' | 'kitchen_run' | 'kitchen_validate' | 'kitchen_admin' | 'live_shows' | 'live_shows_all' | 'live_show_detail' | 'calendar';
 
@@ -56,6 +57,7 @@ function App() {
       return null;
     }
   });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -187,8 +189,43 @@ function App() {
 
   return (
     <AuthWrapper>
-      <div className="min-h-screen flex">
-        <Sidebar currentView={currentView} onNavigate={(v) => setCurrentView(v as View)} userRole={userRole} />
+      <div className="min-h-screen flex flex-col md:flex-row">
+        {/* Mobile Top Bar */}
+        <div className="md:hidden sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200">
+          <div className="flex items-center justify-between px-3 py-2">
+            <button
+              type="button"
+              aria-label="Open menu"
+              className="p-2 rounded-lg hover:bg-slate-100"
+              onClick={() => setMobileMenuOpen(true)}
+            >
+              <Menu className="w-5 h-5 text-slate-700" />
+            </button>
+            <div className="text-sm font-semibold text-slate-800">Halwa Admin</div>
+            <div className="w-10" />
+          </div>
+        </div>
+
+        {/* Desktop Sidebar */}
+        <div className="hidden md:block">
+          <Sidebar
+            currentView={currentView}
+            onNavigate={(v) => setCurrentView(v as View)}
+            userRole={userRole}
+          />
+        </div>
+
+        {/* Mobile Sidebar Overlay */}
+        {mobileMenuOpen && (
+          <Sidebar
+            currentView={currentView}
+            onNavigate={(v) => { setCurrentView(v as View); setMobileMenuOpen(false); }}
+            userRole={userRole}
+            mobileOpen
+            onClose={() => setMobileMenuOpen(false)}
+          />
+        )}
+
         <div className="flex-1">
       {currentView === 'dashboard' && userRole !== 'sales' && (
         <Dashboard
