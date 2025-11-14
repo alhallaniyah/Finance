@@ -1,5 +1,13 @@
 {
   "name": "finance-invoice",
   "compatibility_date": "2025-11-05",
-  "assets": { "directory": "./dist" }
+  "main": "worker/index.ts",
+  "assets": { "directory": "./dist" },
+  "kv_namespaces": [
+    {
+      "binding": "GOOGLE_TOKENS",
+      "id": "REPLACE_WITH_KV_ID",
+      "preview_id": "REPLACE_WITH_PREVIEW_ID"
+    }
+  ]
 }
