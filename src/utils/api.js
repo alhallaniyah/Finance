@@ -1,17 +1,34 @@
 export async function generateReceipt(data) {
-  const res = await fetch("http://localhost:5001/api/generate-receipt", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const mode = (data && data.mode) ? String(data.mode).toLowerCase() : 'print';
+  const endpoint = `http://localhost:5001/api/generate-receipt${mode === 'pdf' ? '?mode=pdf' : ''}`;
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
 
+  const contentType = res.headers.get('content-type') || '';
+
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to generate receipt: ${res.status} ${text}`);
+    const errText = await res.text();
+    throw new Error(`Failed to generate receipt: ${res.status} ${errText}`);
   }
 
-  const blob = await res.blob();
-  const url = window.URL.createObjectURL(blob);
-  window.open(url);
-  return url;
+  // If server returned PDF, open preview in a new tab
+  if (contentType.includes('application/pdf')) {
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    window.open(url);
+    return url;
+  }
+
+  // Print mode returns JSON (do not open a browser tab)
+  try {
+    const json = await res.json();
+    return json; // e.g., { printed: true }
+  } catch (_) {
+    // Fallback in case content-type is not JSON
+    return { ok: true };
+  }
 }

@@ -581,10 +581,11 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
     setPricingForm((prev) => ({ ...prev, [itemId]: value }));
   }
 
-  function saveProviderPricing() {
+  async function saveProviderPricing() {
     const provider = selectedProvider as any;
     if (!provider) return;
-    let providerId = provider.id;
+    const providerKey = provider.id;
+    let providerId = providerKey;
     const overridesArr = Object.entries(pricingForm)
       .map(([itemId, val]) => {
         const parsed = parseFloat(val);
@@ -602,37 +603,41 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
       priceMultiplier: Number.isFinite(multParsed) ? Number(multParsed) : undefined,
       overrides: overridesArr,
     };
-    (async () => {
-      try {
-        // Ensure provider exists in DB and get its ID
-        const ensured = await supabaseHelpers.findOrCreateDeliveryProvider({ name: provider.name, phone: provider.phone, method: (provider as any).method, managed: provider.managed });
-        providerId = ensured.id;
-        // Persist multiplier
-        if (typeof payload.priceMultiplier !== 'undefined') {
-          await supabaseHelpers.updateDeliveryProvider(providerId, { price_multiplier: payload.priceMultiplier });
-        }
-        // Persist overrides server-side: upsert new ones and delete removed
-        await supabaseHelpers.upsertDeliveryProviderOverrides(
-          providerId,
-          payload.overrides.map((o) => ({ item_id: o.itemId, sku: o.sku, price: o.price }))
-        );
-        const keepIds = payload.overrides.map((o) => o.itemId);
-        await supabaseHelpers.deleteDeliveryProviderOverridesExcept(providerId, keepIds);
-      } catch (e) {
-        console.warn('Failed to persist provider pricing to server', e);
-        const msg = (e && (e as any).message) ? String((e as any).message) : String(e);
-        setError(`Failed to save provider pricing: ${msg}`);
-        return;
+    try {
+      // Ensure provider exists in DB and get its ID
+      const ensured = await supabaseHelpers.findOrCreateDeliveryProvider({
+        name: provider.name,
+        phone: provider.phone,
+        method: (provider as any).method,
+        managed: provider.managed,
+      });
+      providerId = ensured.id;
+      // Persist multiplier
+      if (typeof payload.priceMultiplier !== 'undefined') {
+        await supabaseHelpers.updateDeliveryProvider(providerId, { price_multiplier: payload.priceMultiplier });
       }
-    })();
-    setProviders((prev) =>
-      prev.map((p: any) =>
-        p.id === provider.id
-          ? { ...p, priceMultiplier: payload.priceMultiplier, priceOverrides: payload.overrides }
-          : p
-      )
-    );
-    setShowPricingModal(false);
+      // Persist overrides server-side: upsert new ones and delete removed
+      await supabaseHelpers.upsertDeliveryProviderOverrides(
+        providerId,
+        payload.overrides.map((o) => ({ item_id: o.itemId, sku: o.sku, price: o.price }))
+      );
+      const keepIds = payload.overrides.map((o) => o.itemId);
+      await supabaseHelpers.deleteDeliveryProviderOverridesExcept(providerId, keepIds);
+      setProviders((prev) =>
+        prev.map((p: any) =>
+          p.id === providerKey || p.id === providerId
+            ? { ...p, id: providerId, priceMultiplier: payload.priceMultiplier, priceOverrides: payload.overrides }
+            : p
+        )
+      );
+      setSelectedProviderId((prev) => (prev === providerKey ? providerId : prev));
+      setPricingDirty(false);
+      setShowPricingModal(false);
+    } catch (e) {
+      console.warn('Failed to persist provider pricing to server', e);
+      const msg = (e && (e as any).message) ? String((e as any).message) : String(e);
+      setError(`Failed to save provider pricing: ${msg}`);
+    }
   }
 
   function validate(): boolean {
