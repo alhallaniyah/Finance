@@ -4,6 +4,7 @@ import { supabaseHelpers } from '../lib/supabaseHelpers';
 import { ArrowLeft, CreditCard as Edit, Copy, Printer } from 'lucide-react';
 import { formatCurrency, formatDate } from '../lib/documentHelpers';
 import { generateReceipt } from '../utils/api';
+import type { ReceiptPayload } from '../utils/api';
 import { printElementWithStyles } from '../lib/printHelpers';
 
 type DocumentViewProps = {
@@ -97,7 +98,7 @@ export default function DocumentView({
     const isDashboard = !isPOS && origin !== 'pos_delivery';
     if (isPOS) {
       try {
-        const payload = buildReceiptPayload();
+        const payload: ReceiptPayload = { ...buildReceiptPayload(), mode: 'print' as const };
         await generateReceipt(payload);
       } catch (e) {
         console.error('Failed to generate POS receipt PDF, falling back to browser print.', e);
@@ -132,7 +133,7 @@ export default function DocumentView({
           const isPOS = origin === 'pos_in_store';
           const target = printRef.current;
           if (isPOS) {
-            const payload = buildReceiptPayload();
+            const payload: ReceiptPayload = { ...buildReceiptPayload(), mode: 'print' as const };
             await generateReceipt(payload);
           } else if (target) {
             await printElementWithStyles(target, {

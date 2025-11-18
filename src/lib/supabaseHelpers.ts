@@ -1,26 +1,26 @@
 import { supabase } from './supabase';
+import {
+  createKeyedCache,
+  createMemoryCache,
+  readLocalCache,
+  removeLocalCache,
+  removeLocalCacheByPrefix,
+  writeLocalCache,
+} from './cacheUtils';
 
-// Lightweight in-memory cache for dashboard documents
-let documentsCache: { data: Document[]; timestamp: number } | null = null;
 const DOCUMENTS_CACHE_TTL_MS = 60_000; // 60 seconds
-
-// Paged cache for dashboard documents
-const documentPagesCache: Map<string, { data: Document[]; total: number; timestamp: number }> = new Map();
 const DOCUMENT_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
-
-// Paged cache for kitchen batches
-const kitchenBatchPagesCache: Map<string, { data: KitchenBatch[]; total: number; timestamp: number }> = new Map();
 const KITCHEN_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
-
-// Paged cache for live shows
-const liveShowPagesCache: Map<string, { data: LiveShow[]; total: number; timestamp: number }> = new Map();
 const LIVE_SHOW_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
-
-// Cache for catalog items and delivery providers (used by Dashboard/Admin/POS)
- let itemsCache: { data: Item[]; timestamp: number } | null = null;
- let deliveryProvidersCache: { data: DeliveryProvider[]; timestamp: number } | null = null;
- let liveShowsCache: { data: LiveShow[]; timestamp: number } | null = null;
 const LIST_CACHE_TTL_MS = 60_000; // 60 seconds
+
+const documentsCache = createMemoryCache<Document[]>(DOCUMENTS_CACHE_TTL_MS);
+const documentPagesCache = createKeyedCache<{ data: Document[]; total: number }>(DOCUMENT_PAGES_CACHE_TTL_MS);
+const kitchenBatchPagesCache = createKeyedCache<{ data: KitchenBatch[]; total: number }>(KITCHEN_PAGES_CACHE_TTL_MS);
+const liveShowPagesCache = createKeyedCache<{ data: LiveShow[]; total: number }>(LIVE_SHOW_PAGES_CACHE_TTL_MS);
+const itemsCache = createMemoryCache<Item[]>(LIST_CACHE_TTL_MS);
+const deliveryProvidersCache = createMemoryCache<DeliveryProvider[]>(LIST_CACHE_TTL_MS);
+const liveShowsCache = createMemoryCache<LiveShow[]>(LIST_CACHE_TTL_MS);
 
 // LocalStorage TTLs (longer-lived than in-memory)
 const LOCAL_LIST_CACHE_TTL_MS = 15 * 60_000; // 15 minutes
@@ -31,162 +31,107 @@ function nowMs() {
   return Date.now();
 }
 
-// ---- localStorage helpers ----
-type CachedPayload<T = any> = { data: T; timestamp: number } & Record<string, any>;
-
-function lsGet<T = any>(key: string): CachedPayload<T> | null {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed.timestamp !== 'number') return null;
-    return parsed as CachedPayload<T>;
-  } catch {
-    return null;
-  }
-}
-
-function lsSet(key: string, payload: any) {
-  try {
-    const withTs = { ...payload, timestamp: nowMs() };
-    localStorage.setItem(key, JSON.stringify(withTs));
-  } catch {
-    // ignore storage write errors (e.g., privacy mode)
-  }
-}
-
-function lsRemove(key: string) {
-  try {
-    localStorage.removeItem(key);
-  } catch {
-    // ignore
-  }
-}
-
-function lsRemoveByPrefix(prefix: string) {
-  try {
-    const keys: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k) keys.push(k);
-    }
-    for (const k of keys) {
-      if (k.startsWith(prefix)) {
-        localStorage.removeItem(k);
-      }
-    }
-  } catch {
-    // ignore
-  }
-}
-
-function isDocumentsCacheValid() {
-  return documentsCache !== null && nowMs() - documentsCache.timestamp < DOCUMENTS_CACHE_TTL_MS;
+function getDocumentsCache() {
+  return documentsCache.get();
 }
 
 function setDocumentsCache(data: Document[]) {
-  documentsCache = { data, timestamp: nowMs() };
+  documentsCache.set(data);
 }
 
 function invalidateDocumentsCache() {
-  documentsCache = null;
+  documentsCache.invalidate();
 }
 
 function documentPageCacheKey(page: number, pageSize: number) {
   return `${page}:${pageSize}`;
 }
 
-function isDocumentPageCacheValid(key: string) {
-  const entry = documentPagesCache.get(key);
-  return !!entry && nowMs() - entry.timestamp < DOCUMENT_PAGES_CACHE_TTL_MS;
+function getDocumentPageCache(key: string) {
+  return documentPagesCache.get(key);
 }
 
 function setDocumentPageCache(key: string, payload: { data: Document[]; total: number }) {
-  documentPagesCache.set(key, { ...payload, timestamp: nowMs() });
+  documentPagesCache.set(key, payload);
 }
 
 function invalidateDocumentPagesCache() {
-  documentPagesCache.clear();
-  // also clear persisted cache
-  lsRemoveByPrefix('cache:documents:page:');
+  documentPagesCache.invalidate();
+  removeLocalCacheByPrefix('cache:documents:page:');
 }
 
 function kitchenBatchPageCacheKey(page: number, pageSize: number) {
   return `${page}:${pageSize}`;
 }
 
-function isKitchenBatchPageCacheValid(key: string) {
-  const entry = kitchenBatchPagesCache.get(key);
-  return !!entry && nowMs() - entry.timestamp < KITCHEN_PAGES_CACHE_TTL_MS;
+function getKitchenBatchPageCache(key: string) {
+  return kitchenBatchPagesCache.get(key);
 }
 
 function setKitchenBatchPageCache(key: string, payload: { data: KitchenBatch[]; total: number }) {
-  kitchenBatchPagesCache.set(key, { ...payload, timestamp: nowMs() });
+  kitchenBatchPagesCache.set(key, payload);
 }
 
 function invalidateKitchenBatchPagesCache() {
-  kitchenBatchPagesCache.clear();
-  // also clear persisted cache
-  lsRemoveByPrefix('cache:kitchen_batches:page:');
+  kitchenBatchPagesCache.invalidate();
+  removeLocalCacheByPrefix('cache:kitchen_batches:page:');
 }
 
 function liveShowPageCacheKey(page: number, pageSize: number) {
   return `${page}:${pageSize}`;
 }
 
-function isLiveShowPageCacheValid(key: string) {
-  const entry = liveShowPagesCache.get(key);
-  return !!entry && nowMs() - entry.timestamp < LIVE_SHOW_PAGES_CACHE_TTL_MS;
+function getLiveShowPageCache(key: string) {
+  return liveShowPagesCache.get(key);
 }
 
 function setLiveShowPageCache(key: string, payload: { data: LiveShow[]; total: number }) {
-  liveShowPagesCache.set(key, { ...payload, timestamp: nowMs() });
+  liveShowPagesCache.set(key, payload);
 }
 
 function invalidateLiveShowPagesCache() {
-  liveShowPagesCache.clear();
-  // also clear persisted cache
-  lsRemoveByPrefix('cache:live_shows:page:');
+  liveShowPagesCache.invalidate();
+  removeLocalCacheByPrefix('cache:live_shows:page:');
 }
 
-function isItemsCacheValid() {
-  return itemsCache !== null && nowMs() - itemsCache.timestamp < LIST_CACHE_TTL_MS;
+function getItemsCache() {
+  return itemsCache.get();
 }
 
 function setItemsCache(data: Item[]) {
-  itemsCache = { data, timestamp: nowMs() };
+  itemsCache.set(data);
 }
 
 function invalidateItemsCache() {
-  itemsCache = null;
-  lsRemove('cache:items:list');
+  itemsCache.invalidate();
+  removeLocalCache('cache:items:list');
 }
 
-function isDeliveryProvidersCacheValid() {
-  return deliveryProvidersCache !== null && nowMs() - deliveryProvidersCache.timestamp < LIST_CACHE_TTL_MS;
+function getDeliveryProvidersCache() {
+  return deliveryProvidersCache.get();
 }
 
 function setDeliveryProvidersCache(data: DeliveryProvider[]) {
-  deliveryProvidersCache = { data, timestamp: nowMs() };
+  deliveryProvidersCache.set(data);
 }
 
-  function invalidateDeliveryProvidersCache() {
-    deliveryProvidersCache = null;
-    lsRemove('cache:delivery_providers:list');
-  }
+function invalidateDeliveryProvidersCache() {
+  deliveryProvidersCache.invalidate();
+  removeLocalCache('cache:delivery_providers:list');
+}
 
-  function isLiveShowsCacheValid() {
-    return !!(liveShowsCache && nowMs() - liveShowsCache.timestamp < LIST_CACHE_TTL_MS);
-  }
+function getLiveShowsCache() {
+  return liveShowsCache.get();
+}
 
-  function setLiveShowsCache(data: LiveShow[]) {
-    liveShowsCache = { data, timestamp: nowMs() };
-  }
+function setLiveShowsCache(data: LiveShow[]) {
+  liveShowsCache.set(data);
+}
 
-  function invalidateLiveShowsCache() {
-    liveShowsCache = null;
-    lsRemove('cache:live_shows:list');
-  }
+function invalidateLiveShowsCache() {
+  liveShowsCache.invalidate();
+  removeLocalCache('cache:live_shows:list');
+}
 
 async function generateDocumentNumberInternal(type: 'quotation' | 'invoice' | 'delivery_note'): Promise<string> {
   const prefix = type === 'quotation' ? 'q' : type === 'invoice' ? 'r' : 'd';
@@ -530,16 +475,16 @@ export const supabaseHelpers = {
   },
 
   async getLiveShows(): Promise<LiveShow[]> {
-    // Try in-memory cache first
-    if (isLiveShowsCacheValid()) {
-      return liveShowsCache!.data;
+    const cached = getLiveShowsCache();
+    if (cached) {
+      return cached;
     }
-    // Then check localStorage
     const lsKey = 'cache:live_shows:list';
-    const lsCached = lsGet<LiveShow[]>(lsKey);
+    const lsCached = readLocalCache<LiveShow[]>(lsKey);
     if (lsCached && nowMs() - lsCached.timestamp < LOCAL_LIST_CACHE_TTL_MS) {
-      setLiveShowsCache(lsCached.data as LiveShow[]);
-      return lsCached.data as LiveShow[];
+      const data = (lsCached.data || []) as LiveShow[];
+      setLiveShowsCache(data);
+      return data;
     }
     // Fallback to Supabase
     const { data, error } = await supabase
@@ -549,7 +494,7 @@ export const supabaseHelpers = {
     if (error) throw error;
     const shows = (data || []) as LiveShow[];
     setLiveShowsCache(shows);
-    lsSet(lsKey, { data: shows });
+    writeLocalCache(lsKey, { data: shows });
     return shows;
   },
 
@@ -558,14 +503,12 @@ export const supabaseHelpers = {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
     const key = liveShowPageCacheKey(page, pageSize);
-    // Try in-memory cache first
-    if (isLiveShowPageCacheValid(key)) {
-      const cached = liveShowPagesCache.get(key)!;
-      return { data: cached.data, total: cached.total };
+    const memoryCached = getLiveShowPageCache(key);
+    if (memoryCached) {
+      return memoryCached;
     }
-    // Then check localStorage (per company)
     const lsKey = `cache:live_shows:page:${companyId}:${key}`;
-    const lsCached = lsGet<LiveShow[]>(lsKey);
+    const lsCached = readLocalCache<LiveShow[]>(lsKey);
     if (lsCached && nowMs() - lsCached.timestamp < LOCAL_PAGE_CACHE_TTL_MS) {
       const payload = { data: (lsCached.data || []) as LiveShow[], total: Number((lsCached as any).total) || 0 };
       setLiveShowPageCache(key, payload);
@@ -581,7 +524,7 @@ export const supabaseHelpers = {
     if (error) throw error;
     const payload = { data: (data || []) as LiveShow[], total: count || 0 };
     setLiveShowPageCache(key, payload);
-    lsSet(lsKey, payload);
+    writeLocalCache(lsKey, payload);
     return payload;
   },
 
@@ -952,16 +895,16 @@ export const supabaseHelpers = {
   },
 
   async getDeliveryProviders(): Promise<DeliveryProvider[]> {
-    // Try in-memory cache
-    if (isDeliveryProvidersCacheValid()) {
-      return deliveryProvidersCache!.data;
+    const cached = getDeliveryProvidersCache();
+    if (cached) {
+      return cached;
     }
-    // Then check localStorage
     const lsKey = 'cache:delivery_providers:list';
-    const lsCached = lsGet<DeliveryProvider[]>(lsKey);
+    const lsCached = readLocalCache<DeliveryProvider[]>(lsKey);
     if (lsCached && nowMs() - lsCached.timestamp < LOCAL_LIST_CACHE_TTL_MS) {
-      setDeliveryProvidersCache(lsCached.data as DeliveryProvider[]);
-      return lsCached.data as DeliveryProvider[];
+      const data = (lsCached.data || []) as DeliveryProvider[];
+      setDeliveryProvidersCache(data);
+      return data;
     }
     // Fetch from Supabase
     const { data, error } = await supabase
@@ -971,7 +914,7 @@ export const supabaseHelpers = {
     if (error) throw error;
     const providers = (data || []) as DeliveryProvider[];
     setDeliveryProvidersCache(providers);
-    lsSet(lsKey, { data: providers });
+    writeLocalCache(lsKey, { data: providers });
     return providers;
   },
 
@@ -1351,15 +1294,13 @@ export const supabaseHelpers = {
     const companyId = await supabaseHelpers.resolveCompanyId();
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
-    // Try cache first (scoped by page+size only; filtered by company)
     const key = kitchenBatchPageCacheKey(page, pageSize);
-    if (isKitchenBatchPageCacheValid(key)) {
-      const cached = kitchenBatchPagesCache.get(key)!;
-      return { data: cached.data, total: cached.total };
+    const memoryCached = getKitchenBatchPageCache(key);
+    if (memoryCached) {
+      return memoryCached;
     }
-    // Check localStorage next (per-company)
     const lsKey = `cache:kitchen_batches:page:${companyId}:${key}`;
-    const lsCached = lsGet<KitchenBatch[]>(lsKey);
+    const lsCached = readLocalCache<KitchenBatch[]>(lsKey);
     if (lsCached && nowMs() - lsCached.timestamp < LOCAL_PAGE_CACHE_TTL_MS) {
       const payload = { data: (lsCached.data || []) as KitchenBatch[], total: Number((lsCached as any).total) || 0 };
       setKitchenBatchPageCache(key, payload);
@@ -1374,7 +1315,7 @@ export const supabaseHelpers = {
     if (error) throw error;
     const payload = { data: (data || []) as KitchenBatch[], total: count || 0 };
     setKitchenBatchPageCache(key, payload);
-    lsSet(lsKey, payload);
+    writeLocalCache(lsKey, payload);
     return payload;
   },
 
@@ -1539,8 +1480,7 @@ export const supabaseHelpers = {
     invalidateDeliveryProvidersCache();
   },
 
-  async findOrCreateDeliveryProvider(params: { name: string; phone?: string; method?: string; managed?: boolean }): Promise<{ id: string; name: string }>
-  {
+  async findOrCreateDeliveryProvider(params: { name: string; phone?: string; method?: string; managed?: boolean }): Promise<{ id: string; name: string }> {
     const companyId = await supabaseHelpers.resolveCompanyId();
     // Try exact-name match within company scope if companyId available; otherwise global fallback
     const query = supabase
@@ -1566,6 +1506,8 @@ export const supabaseHelpers = {
       .select('id, name')
       .single();
     if (insErr) throw insErr;
+    // Ensure cached provider lists reflect the new row
+    invalidateDeliveryProvidersCache();
     return created as { id: string; name: string };
   },
 
@@ -1600,8 +1542,9 @@ export const supabaseHelpers = {
 
   // Cached variant for dashboard/table views to avoid repeated DB loads
   async getDocumentsCached(options?: { forceRefresh?: boolean }): Promise<Document[]> {
-    if (!options?.forceRefresh && isDocumentsCacheValid()) {
-      return documentsCache!.data;
+    const cached = getDocumentsCache();
+    if (!options?.forceRefresh && cached) {
+      return cached;
     }
     const docs = await supabaseHelpers.getDocuments();
     setDocumentsCache(docs);
@@ -1614,17 +1557,15 @@ export const supabaseHelpers = {
     const safePageSize = Math.max(1, Math.floor(pageSize || 10));
     const start = (safePage - 1) * safePageSize;
     const end = start + safePageSize - 1;
-    // Try cache first
     const key = documentPageCacheKey(safePage, safePageSize);
-    if (isDocumentPageCacheValid(key)) {
-      const cached = documentPagesCache.get(key)!;
-      return { data: cached.data, total: cached.total };
+    const memoryCached = getDocumentPageCache(key);
+    if (memoryCached) {
+      return memoryCached;
     }
-    // Try localStorage next
     const { data: authData } = await supabase.auth.getUser();
     const userId = authData?.user?.id || 'anon';
     const lsKey = `cache:documents:page:${userId}:${key}`;
-    const lsCached = lsGet<Document[]>(lsKey);
+    const lsCached = readLocalCache<Document[]>(lsKey);
     if (lsCached && nowMs() - lsCached.timestamp < LOCAL_PAGE_CACHE_TTL_MS) {
       const payload = { data: (lsCached.data || []) as Document[], total: Number((lsCached as any).total) || 0 };
       setDocumentPageCache(key, payload);
@@ -1639,7 +1580,7 @@ export const supabaseHelpers = {
     if (error) throw error;
     const payload = { data: (data || []) as Document[], total: count ?? 0 };
     setDocumentPageCache(key, payload);
-    lsSet(lsKey, payload);
+    writeLocalCache(lsKey, payload);
     return payload;
   },
 
@@ -1750,14 +1691,14 @@ export const supabaseHelpers = {
     const key = `cache:clients:list:${companyId || 'default'}`;
 
     if (!options?.forceRefresh) {
-      const cached = lsGet<Client[]>(key);
+      const cached = readLocalCache<Client[]>(key);
       if (cached && nowMs() - cached.timestamp < LOCAL_CLIENTS_CACHE_TTL_MS) {
-        return cached.data;
+        return (cached.data || []) as Client[];
       }
     }
 
     const clients = await supabaseHelpers.getClients();
-    lsSet(key, { data: clients, timestamp: nowMs() });
+    writeLocalCache(key, { data: clients });
     return clients;
   },
 
@@ -1776,7 +1717,7 @@ export const supabaseHelpers = {
 
     if (error) throw error;
     // Invalidate local cache so POS sees new clients immediately
-    lsRemoveByPrefix('cache:clients:list:');
+    removeLocalCacheByPrefix('cache:clients:list:');
     return data;
   },
 
@@ -2069,16 +2010,16 @@ export const supabaseHelpers = {
 
   // --- Items CRUD ---
   async getItems(): Promise<Item[]> {
-    // Try in-memory cache first
-    if (isItemsCacheValid()) {
-      return itemsCache!.data;
+    const cached = getItemsCache();
+    if (cached) {
+      return cached;
     }
-    // Then check localStorage
     const lsKey = 'cache:items:list';
-    const lsCached = lsGet<Item[]>(lsKey);
+    const lsCached = readLocalCache<Item[]>(lsKey);
     if (lsCached && nowMs() - lsCached.timestamp < LOCAL_LIST_CACHE_TTL_MS) {
-      setItemsCache(lsCached.data as Item[]);
-      return lsCached.data as Item[];
+      const data = (lsCached.data || []) as Item[];
+      setItemsCache(data);
+      return data;
     }
     // Fallback to Supabase
     const { data, error } = await supabase
@@ -2088,7 +2029,7 @@ export const supabaseHelpers = {
     if (error) throw error;
     const items = (data || []) as Item[];
     setItemsCache(items);
-    lsSet(lsKey, { data: items });
+    writeLocalCache(lsKey, { data: items });
     return items;
   },
 
