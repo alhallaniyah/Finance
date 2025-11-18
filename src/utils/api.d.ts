@@ -17,6 +17,8 @@ export type ReceiptPayload = {
   vat?: number;
   total: number;
   paidAmount: number;
+  /** Optional: choose 'print' (default) or 'pdf' */
+  mode?: 'print' | 'pdf';
 };
 
-export function generateReceipt(data: ReceiptPayload): Promise<string>;
+export function generateReceipt(data: ReceiptPayload): Promise<string | { printed: boolean } | { ok: true }>;
