@@ -33,7 +33,7 @@ pdfmetrics.registerFont(TTFont("ArialUnicode", UNICODE_FONT))
 # ===== ESC/POS PRINTER CONFIG =====
 # Configure via environment variables. Defaults assume a network printer.
 PRINTER_CONNECTION = os.environ.get("ESC_POS_CONNECTION", "network").strip().lower()  # network|usb|serial
-PRINTER_HOST = os.environ.get("ESC_POS_HOST", "127.0.0.1")
+PRINTER_HOST = os.environ.get("ESC_POS_HOST", "192.168.70.124")
 PRINTER_PORT = int(os.environ.get("ESC_POS_PORT", "9100"))
 
 # USB config (use hex like 0x04b8 for Epson vendor id)

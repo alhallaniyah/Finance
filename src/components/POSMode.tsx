@@ -474,6 +474,22 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
         delivery_provider_id: null,
       });
 
+      // Ensure receipt has an item so it displays in document view
+      try {
+        await supabaseHelpers.createDocumentItem({
+          document_id: receiptDoc.id,
+          description: `${paymentType === 'advance' ? 'Advance Payment' : 'Full Payment'} (${selectedShowForPayment.show_number})`,
+          quantity: 1,
+          weight: 0,
+          sell_by: 'unit',
+          item_id: null,
+          unit_price: amt,
+          amount: amt,
+        });
+      } catch (e) {
+        console.warn('Failed to attach payment item to receipt', e);
+      }
+
       // Refresh lists
       const updatedPayments = await supabaseHelpers.getLiveShowPayments(selectedShowForPayment.id);
       setPaymentsMap((prev) => ({ ...prev, [selectedShowForPayment.id]: updatedPayments }));
