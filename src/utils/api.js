@@ -1,6 +1,7 @@
 export async function generateReceipt(data) {
   const mode = (data && data.mode) ? String(data.mode).toLowerCase() : 'print';
-  const endpoint = `http://localhost:5001/api/generate-receipt${mode === 'pdf' ? '?mode=pdf' : ''}`;
+  const base = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) ? import.meta.env.VITE_API_BASE_URL : 'http://localhost:5001';
+  const endpoint = `${base}/api/generate-receipt${mode === 'pdf' ? '?mode=pdf' : ''}`;
 
   const res = await fetch(endpoint, {
     method: 'POST',
