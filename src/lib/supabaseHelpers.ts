@@ -235,6 +235,7 @@ export type CompanySettings = {
   company_address?: string;
   company_trn?: string;
   company_logo_url?: string;
+  company_stamp_url?: string;
   default_terms?: string;
   tax_rate?: number;
   created_at?: string;
@@ -399,6 +400,33 @@ export type LiveShowPayment = {
 };
 
 export const supabaseHelpers = {
+  async uploadCompanyAsset(file: File, kind: 'logo' | 'stamp'): Promise<string> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const bucket = (import.meta as any).env?.VITE_SUPABASE_COMPANY_BUCKET || 'company-assets';
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+    const safeExt = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext) ? ext : 'png';
+    const path = `${user.id}/${kind}/${Date.now()}_${Math.random().toString(36).slice(2)}.${safeExt}`;
+
+    const { error: uploadErr } = await supabase.storage.from(bucket).upload(path, file, {
+      cacheControl: '3600',
+      upsert: false,
+    });
+    if (uploadErr) {
+      const msg = (uploadErr as any)?.message || String(uploadErr);
+      if (msg.toLowerCase().includes('bucket not found')) {
+        throw new Error(
+          `Storage bucket "${bucket}" not found. Create it in Supabase (Storage → New bucket) and set it public, or set VITE_SUPABASE_COMPANY_BUCKET to an existing bucket.`
+        );
+      }
+      throw uploadErr;
+    }
+
+    const { data: pub } = supabase.storage.from(bucket).getPublicUrl(path);
+    if (!pub?.publicUrl) throw new Error('Failed to resolve public URL');
+    return pub.publicUrl;
+  },
   async resolveCompanyId(): Promise<string | null> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;

@@ -95,7 +95,6 @@ export default function DocumentView({
   async function handlePrint() {
     const origin = document.origin;
     const isPOS = origin === 'pos_in_store';
-    const isDashboard = !isPOS && origin !== 'pos_delivery';
     if (isPOS) {
       try {
         const payload: ReceiptPayload = { ...buildReceiptPayload(), mode: 'print' as const };
@@ -189,7 +188,7 @@ export default function DocumentView({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 py-8">
+    <div className="min-h-screen py-8">
       <div className="max-w-5xl mx-auto px-6">
         <div className="mb-6 flex justify-between items-center print:hidden">
           <button
@@ -225,72 +224,69 @@ export default function DocumentView({
           </div>
         </div>
 
-        <div ref={printRef} className={`bg-white rounded-xl shadow-sm border border-slate-200 p-12 ${isPOSInStore ? 'print:hidden' : 'print:shadow-none print:border-0'}`}>
+        <div ref={printRef} className={`relative bg-white rounded-xl shadow-sm border border-slate-200 p-12 ${isPOSInStore ? 'print:hidden' : 'print:shadow-none print:border-0'}`}>
           <div className="flex justify-between items-start mb-8">
-            <div>
-              {companySettings?.company_logo_url && (
-                <img
-                  src={companySettings.company_logo_url}
-                  alt="Company Logo"
-                  className="h-16 mb-4 object-contain"
-                />
-              )}
-              <h2 className="text-xl font-bold text-slate-800">{companySettings?.company_name || 'Company Name'}</h2>
-              <p className="text-slate-600 whitespace-pre-line">{companySettings?.company_address}</p>
-              {companySettings?.company_trn && (
-                <p className="text-slate-600">TRN: {companySettings.company_trn}</p>
-              )}
-            </div>
+  
+  {/* LEFT SIDE — Company info + Bill To */}
+  <div className="space-y-4">
+    {companySettings?.company_logo_url && (
+      <img
+        src={companySettings.company_logo_url}
+        alt="Company Logo"
+        className="h-20 mb-2 object-contain"
+      />
+    )}
 
-            <div className="text-right">
-              <h1 className="text-3xl font-bold text-slate-800 mb-2">{documentTitle}</h1>
-              <p className="text-slate-600 text-sm">
-                <span className="font-semibold">Number:</span> {document.document_number}
-              </p>
-              <p className="text-slate-600 text-sm">
-                <span className="font-semibold">Date:</span> {document.issue_date ? formatDate(document.issue_date) : '-'}
-              </p>
-              {document.due_date && (
-                <p className="text-slate-600 text-sm">
-                  <span className="font-semibold">Due:</span> {formatDate(document.due_date)}
-                </p>
-              )}
-              <span
-                className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-medium ${
-                  document.status === 'paid'
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : document.status === 'sent'
-                    ? 'bg-blue-100 text-blue-700'
-                    : document.status === 'cancelled'
-                    ? 'bg-red-100 text-red-700'
-                    : 'bg-slate-100 text-slate-700'
-                }`}
-              >
-                {(document.status ?? 'draft').toUpperCase()}
-              </span>
-              <div
-                className={`mt-2 inline-block px-3 py-1 rounded-full text-xs font-medium ${
-                  isPOSInStore
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : isPOSDelivery
-                    ? 'bg-orange-100 text-orange-700'
-                    : 'bg-slate-100 text-slate-700'
-                }`}
-              >
-                {originLabel}
-              </div>
-            </div>
-          </div>
+    <h2 className="text-xl font-bold text-slate-800">
+      {companySettings?.company_name || 'Company Name'}
+    </h2>
 
-          <div className="mb-8 p-6 bg-slate-50 rounded-lg">
-            <h3 className="text-sm font-semibold text-slate-700 mb-2 uppercase">Bill To:</h3>
-            <p className="font-semibold text-slate-800">{document.client_name}</p>
-            {document.client_email && <p className="text-slate-600">{document.client_email}</p>}
-            {document.client_phone && <p className="text-slate-600">{document.client_phone}</p>}
-            {document.client_address && <p className="text-slate-600 whitespace-pre-line">{document.client_address}</p>}
-            {document.client_trn && <p className="text-slate-600">TRN: {document.client_trn}</p>}
-            {document.client_emirate && <p className="text-slate-600">Emirate: {document.client_emirate}</p>}
-          </div>
+    <p className="text-slate-600 whitespace-pre-line">
+      {companySettings?.company_address}
+    </p>
+
+    {companySettings?.company_trn && (
+      <p className="text-slate-600">TRN: {companySettings.company_trn}</p>
+    )}
+
+    {/* BILL TO (moved & flattened) */}
+    <div className="pt-4">
+      <h3 className="text-sm font-semibold text-slate-700 mb-1 uppercase">
+        Bill To:
+      </h3>
+      <p className="font-semibold text-slate-800">{document.client_name}</p>
+      {document.client_email && <p className="text-slate-600">{document.client_email}</p>}
+      {document.client_phone && <p className="text-slate-600">{document.client_phone}</p>}
+      {document.client_address && (
+        <p className="text-slate-600 whitespace-pre-line">{document.client_address}</p>
+      )}
+      {document.client_trn && <p className="text-slate-600">TRN: {document.client_trn}</p>}
+      {document.client_emirate && (
+        <p className="text-slate-600">Emirate: {document.client_emirate}</p>
+      )}
+    </div>
+  </div>
+
+  {/* RIGHT SIDE — Document info */}
+  <div className="text-right">
+    <h1 className="text-3xl font-bold text-slate-800 mb-2">{documentTitle}</h1>
+    <p className="text-slate-600 text-sm">
+      <span className="font-semibold">Number:</span> {document.document_number}
+    </p>
+    <p className="text-slate-600 text-sm">
+      <span className="font-semibold">Date:</span>{' '}
+      {document.issue_date ? formatDate(document.issue_date) : '-'}
+    </p>
+    {document.due_date && (
+      <p className="text-slate-600 text-sm">
+        <span className="font-semibold">Due:</span> {formatDate(document.due_date)}
+      </p>
+    )}
+  </div>
+</div>
+
+
+          
 
           <div className="mb-8">
             <table className="w-full">
@@ -417,6 +413,15 @@ export default function DocumentView({
               <h3 className="text-sm font-semibold text-slate-700 mb-2 uppercase">Terms & Conditions:</h3>
               <p className="text-slate-600 text-sm whitespace-pre-line">{document.terms}</p>
             </div>
+          )}
+
+          {/* Stamp bottom-right for dashboard quotations & receipts */}
+          {companySettings?.company_stamp_url && originLabel === 'Dashboard' && (document.document_type === 'quotation' || document.document_type === 'invoice') && (
+            <img
+              src={companySettings.company_stamp_url}
+              alt="Company Stamp"
+              className="absolute right-6 bottom-6 h-60 opacity-80"
+            />
           )}
         </div>
       </div>

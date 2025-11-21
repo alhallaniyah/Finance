@@ -12,6 +12,7 @@ export default function Settings({ onBack }: SettingsProps) {
   const [companyAddress, setCompanyAddress] = useState('');
   const [companyTrn, setCompanyTrn] = useState('');
   const [companyLogoUrl, setCompanyLogoUrl] = useState('');
+  const [companyStampUrl, setCompanyStampUrl] = useState('');
   const [defaultTerms, setDefaultTerms] = useState('');
   const [taxRate, setTaxRate] = useState(5);
   const [settingsId, setSettingsId] = useState<string | null>(null);
@@ -29,8 +30,39 @@ export default function Settings({ onBack }: SettingsProps) {
       setCompanyAddress(data.company_address || '');
       setCompanyTrn(data.company_trn || '');
       setCompanyLogoUrl(data.company_logo_url || '');
+      setCompanyStampUrl((data as any).company_stamp_url || '');
       setDefaultTerms(data.default_terms || '');
       setTaxRate(Number(data.tax_rate) || 5);
+    }
+  }
+
+  async function handleLogoFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    try {
+      const url = await supabaseHelpers.uploadCompanyAsset(file, 'logo');
+      setCompanyLogoUrl(url);
+    } catch (err: any) {
+      console.error('Logo upload failed', err);
+      alert(err?.message || 'Failed to upload logo.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStampFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    try {
+      const url = await supabaseHelpers.uploadCompanyAsset(file, 'stamp');
+      setCompanyStampUrl(url);
+    } catch (err: any) {
+      console.error('Stamp upload failed', err);
+      alert(err?.message || 'Failed to upload stamp.');
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -44,6 +76,7 @@ export default function Settings({ onBack }: SettingsProps) {
         company_address: companyAddress,
         company_trn: companyTrn,
         company_logo_url: companyLogoUrl,
+        company_stamp_url: companyStampUrl,
         default_terms: defaultTerms,
         tax_rate: taxRate,
       };
@@ -112,33 +145,47 @@ export default function Settings({ onBack }: SettingsProps) {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Company Logo URL
-              </label>
-              <div className="flex gap-3">
-                <input
-                  type="url"
-                  value={companyLogoUrl}
-                  onChange={(e) => setCompanyLogoUrl(e.target.value)}
-                  placeholder="https://example.com/logo.png"
-                  className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+              <label className="block text-sm font-medium text-slate-700 mb-2">Company Logo</label>
+              <div className="flex items-center gap-3">
+                <input type="file" accept="image/*" onChange={handleLogoFileChange} />
+                <div className="flex-1">
+                  <input
+                    type="url"
+                    value={companyLogoUrl}
+                    onChange={(e) => setCompanyLogoUrl(e.target.value)}
+                    placeholder="https://example.com/logo.png"
+                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
               </div>
               {companyLogoUrl && (
                 <div className="mt-3">
-                  <img
-                    src={companyLogoUrl}
-                    alt="Company Logo"
-                    className="h-16 object-contain"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
+                  <img src={companyLogoUrl} alt="Company Logo" className="h-16 object-contain" />
                 </div>
               )}
-              <p className="text-xs text-slate-500 mt-2">
-                Enter a URL to an image hosted online
-              </p>
+              <p className="text-xs text-slate-500 mt-2">Upload an image or paste a direct URL</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Company Stamp (bottom-left)</label>
+              <div className="flex items-center gap-3">
+                <input type="file" accept="image/*" onChange={handleStampFileChange} />
+                <div className="flex-1">
+                  <input
+                    type="url"
+                    value={companyStampUrl}
+                    onChange={(e) => setCompanyStampUrl(e.target.value)}
+                    placeholder="https://example.com/stamp.png"
+                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              {companyStampUrl && (
+                <div className="mt-3">
+                  <img src={companyStampUrl} alt="Company Stamp" className="h-16 object-contain" />
+                </div>
+              )}
+              <p className="text-xs text-slate-500 mt-2">Upload an image or paste a direct URL</p>
             </div>
 
             <div>

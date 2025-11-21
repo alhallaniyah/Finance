@@ -63,6 +63,7 @@ export type CompanySettings = {
   company_address: string;
   company_trn: string;
   company_logo_url: string;
+  company_stamp_url?: string;
   default_terms: string;
   tax_rate: number;
   created_at: string;
