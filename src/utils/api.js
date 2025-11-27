@@ -74,9 +74,14 @@ class PosCommandBuilder {
 
 function buildReceiptLayout(payload) {
   const lines = [];
+  if (payload.logoText) {
+    lines.push(centerText(payload.logoText));
+    lines.push('');
+  }
   lines.push(centerText(payload.companyName || 'Company'));
   if (payload.companyAddress) lines.push(centerText(payload.companyAddress));
-  if (payload.companyPhone) lines.push(centerText(payload.companyPhone));
+  const companyPhone = payload.companyPhone || payload.companyTel || payload.companyTelephone || payload.companyPhoneNumber;
+  if (companyPhone) lines.push(centerText(companyPhone));
   lines.push(divider());
   lines.push(kvLine('Receipt No', payload.receiptNo || '-'));
   if (payload.paymentMethod) lines.push(kvLine('Payment', String(payload.paymentMethod).toUpperCase()));
@@ -117,13 +122,24 @@ function buildPosCommands(payload) {
   return { commands: builder.toJSON(), lines };
 }
 
-function openPreview(lines) {
+function openPreview({ lines, logoUrl }) {
   try {
-    const html = `<!doctype html><html><head><title>Receipt Preview</title></head><body><pre style="font-family: 'Fira Code', monospace; font-size: 12px; line-height: 1.35;">${lines.join('\n')}</pre><script>setTimeout(()=>window.print(), 100);</script></body></html>`;
+    // CSP-friendly: no inline scripts or string-based timers
+    const sanitizedLogo = logoUrl ? String(logoUrl).replace(/"/g, '&quot;') : '';
+    const img = sanitizedLogo ? `<img src="${sanitizedLogo}" alt="Logo" style="max-width:160px; display:block; margin:12px auto;" />` : '';
+    const html = `<!doctype html><html><head><title>Receipt Preview</title></head><body><div style="text-align:center;">${img}<pre style="font-family: 'Fira Code', monospace; font-size: 12px; line-height: 1.35; text-align:left; display:inline-block; margin:0 auto;">${lines.join('\n')}</pre></div></body></html>`;
     const w = window.open('', '_blank', 'width=420,height=600');
     if (w) {
       w.document.write(html);
       w.document.close();
+      w.addEventListener('load', () => {
+        try {
+          w.focus();
+          w.print();
+        } catch (err) {
+          console.warn('Preview print failed', err);
+        }
+      });
     }
   } catch (e) {
     console.warn('Preview open failed', e);
@@ -132,7 +148,8 @@ function openPreview(lines) {
 
 export async function generateReceipt(data) {
   const mode = (data && data.mode) ? String(data.mode).toLowerCase() : 'print';
-  const { commands, lines } = buildPosCommands(data || {});
+  const payload = data || {};
+  const { commands, lines } = buildPosCommands(payload);
   const printerName = getDefaultPrinterName();
   const requester = typeof window !== 'undefined' ? window.requestPrint : null;
 
@@ -149,9 +166,9 @@ export async function generateReceipt(data) {
 
   // No SDK available: fallback to HTML preview/print
   if (mode === 'pdf') {
-    openPreview(lines);
+    openPreview({ lines, logoUrl: payload.logoUrl });
     return 'preview-opened';
   }
-  openPreview(lines);
+  openPreview({ lines, logoUrl: payload.logoUrl });
   return { printed: false, fallback: 'preview-opened' };
 }
