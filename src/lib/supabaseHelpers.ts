@@ -64,6 +64,63 @@ function escapeIlike(term: string) {
   return term.replace(/[%_]/g, '\\$&');
 }
 
+type NormalizedDocumentFilters = {
+  searchTerm: string;
+  typeFilter: 'quotation' | 'invoice' | 'delivery_note' | 'all';
+  statusFilter: 'draft' | 'sent' | 'paid' | 'cancelled' | 'all';
+  originFilter: 'dashboard' | 'pos_in_store' | 'pos_delivery' | 'all';
+  dateFrom: string;
+  dateTo: string;
+  sortColumn: 'created_at' | 'issue_date' | 'document_number' | 'total';
+  sortDirection: 'asc' | 'desc';
+};
+
+function normalizeDocumentFilters(filters?: DocumentPageFilters): NormalizedDocumentFilters {
+  const allowedTypes = new Set(['quotation', 'invoice', 'delivery_note']);
+  const allowedStatuses = new Set(['draft', 'sent', 'paid', 'cancelled']);
+  const allowedOrigins = new Set(['dashboard', 'pos_in_store', 'pos_delivery']);
+  const allowedSortColumns = new Set(['created_at', 'issue_date', 'document_number', 'total']);
+  const sortDirection = filters?.sortDirection === 'asc' ? 'asc' : 'desc';
+  const sortColumn = allowedSortColumns.has(filters?.sortColumn || '')
+    ? (filters?.sortColumn as 'created_at' | 'issue_date' | 'document_number' | 'total')
+    : 'created_at';
+  const typeFilter = filters?.filterType && allowedTypes.has(filters.filterType) ? filters.filterType : 'all';
+  const statusFilter = filters?.filterStatus && allowedStatuses.has(filters.filterStatus) ? filters.filterStatus : 'all';
+  const originFilter = filters?.filterOrigin && allowedOrigins.has(filters.filterOrigin) ? filters.filterOrigin : 'all';
+  const searchTerm = (filters?.searchTerm || '').trim();
+  const dateFrom = (filters?.filterDateFrom || '').trim();
+  const dateTo = (filters?.filterDateTo || '').trim();
+
+  return {
+    searchTerm,
+    typeFilter,
+    statusFilter,
+    originFilter,
+    dateFrom,
+    dateTo,
+    sortColumn,
+    sortDirection,
+  };
+}
+
+function applyDocumentFilters(query: any, normalized: NormalizedDocumentFilters) {
+  if (normalized.typeFilter !== 'all') query.eq('document_type', normalized.typeFilter);
+  if (normalized.statusFilter !== 'all') query.eq('status', normalized.statusFilter);
+  if (normalized.originFilter === 'dashboard') {
+    query.or('origin.eq.dashboard,origin.is.null');
+  } else if (normalized.originFilter !== 'all') {
+    query.eq('origin', normalized.originFilter);
+  }
+  if (normalized.dateFrom) query.gte('issue_date', normalized.dateFrom);
+  if (normalized.dateTo) query.lte('issue_date', normalized.dateTo);
+  if (normalized.searchTerm) {
+    const escaped = escapeIlike(normalized.searchTerm);
+    query.or(`document_number.ilike.%${escaped}%,client_name.ilike.%${escaped}%`);
+  }
+  query.order(normalized.sortColumn, { ascending: normalized.sortDirection === 'asc' });
+  return query;
+}
+
 function kitchenBatchPageCacheKey(page: number, pageSize: number) {
   return `${page}:${pageSize}`;
 }
@@ -1604,30 +1661,8 @@ export const supabaseHelpers = {
     const safePageSize = Math.max(1, Math.floor(pageSize || 10));
     const start = (safePage - 1) * safePageSize;
     const end = start + safePageSize - 1;
-    const allowedTypes = new Set(['quotation', 'invoice', 'delivery_note']);
-    const allowedStatuses = new Set(['draft', 'sent', 'paid', 'cancelled']);
-    const allowedOrigins = new Set(['dashboard', 'pos_in_store', 'pos_delivery']);
-    const allowedSortColumns = new Set(['created_at', 'issue_date', 'document_number', 'total']);
-    const sortDirection = filters?.sortDirection === 'asc' ? 'asc' : 'desc';
-    const sortColumn = allowedSortColumns.has(filters?.sortColumn || '')
-      ? (filters?.sortColumn as 'created_at' | 'issue_date' | 'document_number' | 'total')
-      : 'created_at';
-    const typeFilter = filters?.filterType && allowedTypes.has(filters.filterType) ? filters.filterType : 'all';
-    const statusFilter = filters?.filterStatus && allowedStatuses.has(filters.filterStatus) ? filters.filterStatus : 'all';
-    const originFilter = filters?.filterOrigin && allowedOrigins.has(filters.filterOrigin) ? filters.filterOrigin : 'all';
-    const searchTerm = (filters?.searchTerm || '').trim();
-    const dateFrom = (filters?.filterDateFrom || '').trim();
-    const dateTo = (filters?.filterDateTo || '').trim();
-    const filtersKey = JSON.stringify({
-      searchTerm,
-      typeFilter,
-      statusFilter,
-      originFilter,
-      dateFrom,
-      dateTo,
-      sortColumn,
-      sortDirection,
-    });
+    const normalizedFilters = normalizeDocumentFilters(filters);
+    const filtersKey = JSON.stringify(normalizedFilters);
     const key = documentPageCacheKey(safePage, safePageSize, filtersKey);
     const memoryCached = getDocumentPageCache(key);
     if (memoryCached) {
@@ -1647,23 +1682,7 @@ export const supabaseHelpers = {
       .from('documents')
       .select('*', { count: 'exact' });
 
-    // Filter
-    if (typeFilter !== 'all') query.eq('document_type', typeFilter);
-    if (statusFilter !== 'all') query.eq('status', statusFilter);
-    if (originFilter === 'dashboard') {
-      query.or('origin.eq.dashboard,origin.is.null');
-    } else if (originFilter !== 'all') {
-      query.eq('origin', originFilter);
-    }
-    if (dateFrom) query.gte('issue_date', dateFrom);
-    if (dateTo) query.lte('issue_date', dateTo);
-    if (searchTerm) {
-      const escaped = escapeIlike(searchTerm);
-      query.or(`document_number.ilike.%${escaped}%,client_name.ilike.%${escaped}%`);
-    }
-
-    // Transform
-    query.order(sortColumn, { ascending: sortDirection === 'asc' });
+    applyDocumentFilters(query, normalizedFilters);
     query.range(start, end);
 
     const { data, error, count } = await query;
@@ -1684,6 +1703,24 @@ export const supabaseHelpers = {
 
     if (error) throw error;
     return data;
+  },
+
+  // Export all documents matching filters (batches through paginated fetches)
+  async getDocumentsForExport(filters?: DocumentPageFilters): Promise<Document[]> {
+    const pageSize = 1000;
+    let page = 1;
+    const all: Document[] = [];
+    // Reuse paginated fetch to keep server-side filtering identical to the dashboard
+    while (true) {
+      const { data, total } = await supabaseHelpers.getDocumentsPage(page, pageSize, filters);
+      all.push(...data);
+      const totalCount = Number.isFinite(total) ? total : Infinity;
+      const reachedTotal = all.length >= totalCount;
+      const lastBatch = data.length === 0 || data.length < pageSize;
+      if (reachedTotal || lastBatch) break;
+      page += 1;
+    }
+    return all;
   },
 
   async createDocument(documentData: Omit<Document, 'id' | 'created_at' | 'updated_at' | 'user_id'>): Promise<Document> {
