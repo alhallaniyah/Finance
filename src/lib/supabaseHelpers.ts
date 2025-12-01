@@ -43,8 +43,8 @@ function invalidateDocumentsCache() {
   documentsCache.invalidate();
 }
 
-function documentPageCacheKey(page: number, pageSize: number) {
-  return `${page}:${pageSize}`;
+function documentPageCacheKey(page: number, pageSize: number, filtersKey: string) {
+  return `${page}:${pageSize}:${filtersKey}`;
 }
 
 function getDocumentPageCache(key: string) {
@@ -58,6 +58,10 @@ function setDocumentPageCache(key: string, payload: { data: Document[]; total: n
 function invalidateDocumentPagesCache() {
   documentPagesCache.invalidate();
   removeLocalCacheByPrefix('cache:documents:page:');
+}
+
+function escapeIlike(term: string) {
+  return term.replace(/[%_]/g, '\\$&');
 }
 
 function kitchenBatchPageCacheKey(page: number, pageSize: number) {
@@ -213,6 +217,17 @@ export type Document = {
   created_at?: string;
   updated_at?: string;
   user_id: string;
+};
+
+export type DocumentPageFilters = {
+  searchTerm?: string;
+  filterType?: 'quotation' | 'invoice' | 'delivery_note' | 'all';
+  filterStatus?: 'draft' | 'sent' | 'paid' | 'cancelled' | 'all';
+  filterOrigin?: 'dashboard' | 'pos_in_store' | 'pos_delivery' | 'all';
+  filterDateFrom?: string;
+  filterDateTo?: string;
+  sortColumn?: 'created_at' | 'issue_date' | 'document_number' | 'total';
+  sortDirection?: 'asc' | 'desc';
 };
 
 export type DocumentItem = {
@@ -1579,13 +1594,41 @@ export const supabaseHelpers = {
     return docs;
   },
 
-  // Paged listing: returns a single page of documents and total count
-  async getDocumentsPage(page: number, pageSize: number): Promise<{ data: Document[]; total: number }> {
+  // Paged listing: server-side filtering + pagination (Clean -> Filter -> Transform)
+  async getDocumentsPage(
+    page: number,
+    pageSize: number,
+    filters?: DocumentPageFilters
+  ): Promise<{ data: Document[]; total: number }> {
     const safePage = Math.max(1, Math.floor(page || 1));
     const safePageSize = Math.max(1, Math.floor(pageSize || 10));
     const start = (safePage - 1) * safePageSize;
     const end = start + safePageSize - 1;
-    const key = documentPageCacheKey(safePage, safePageSize);
+    const allowedTypes = new Set(['quotation', 'invoice', 'delivery_note']);
+    const allowedStatuses = new Set(['draft', 'sent', 'paid', 'cancelled']);
+    const allowedOrigins = new Set(['dashboard', 'pos_in_store', 'pos_delivery']);
+    const allowedSortColumns = new Set(['created_at', 'issue_date', 'document_number', 'total']);
+    const sortDirection = filters?.sortDirection === 'asc' ? 'asc' : 'desc';
+    const sortColumn = allowedSortColumns.has(filters?.sortColumn || '')
+      ? (filters?.sortColumn as 'created_at' | 'issue_date' | 'document_number' | 'total')
+      : 'created_at';
+    const typeFilter = filters?.filterType && allowedTypes.has(filters.filterType) ? filters.filterType : 'all';
+    const statusFilter = filters?.filterStatus && allowedStatuses.has(filters.filterStatus) ? filters.filterStatus : 'all';
+    const originFilter = filters?.filterOrigin && allowedOrigins.has(filters.filterOrigin) ? filters.filterOrigin : 'all';
+    const searchTerm = (filters?.searchTerm || '').trim();
+    const dateFrom = (filters?.filterDateFrom || '').trim();
+    const dateTo = (filters?.filterDateTo || '').trim();
+    const filtersKey = JSON.stringify({
+      searchTerm,
+      typeFilter,
+      statusFilter,
+      originFilter,
+      dateFrom,
+      dateTo,
+      sortColumn,
+      sortDirection,
+    });
+    const key = documentPageCacheKey(safePage, safePageSize, filtersKey);
     const memoryCached = getDocumentPageCache(key);
     if (memoryCached) {
       return memoryCached;
@@ -1599,11 +1642,31 @@ export const supabaseHelpers = {
       setDocumentPageCache(key, payload);
       return payload;
     }
-    const { data, error, count } = await supabase
+    // Clean -> Filter -> Transform pattern keeps the query predictable and index-friendly
+    const query = supabase
       .from('documents')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range(start, end);
+      .select('*', { count: 'exact' });
+
+    // Filter
+    if (typeFilter !== 'all') query.eq('document_type', typeFilter);
+    if (statusFilter !== 'all') query.eq('status', statusFilter);
+    if (originFilter === 'dashboard') {
+      query.or('origin.eq.dashboard,origin.is.null');
+    } else if (originFilter !== 'all') {
+      query.eq('origin', originFilter);
+    }
+    if (dateFrom) query.gte('issue_date', dateFrom);
+    if (dateTo) query.lte('issue_date', dateTo);
+    if (searchTerm) {
+      const escaped = escapeIlike(searchTerm);
+      query.or(`document_number.ilike.%${escaped}%,client_name.ilike.%${escaped}%`);
+    }
+
+    // Transform
+    query.order(sortColumn, { ascending: sortDirection === 'asc' });
+    query.range(start, end);
+
+    const { data, error, count } = await query;
 
     if (error) throw error;
     const payload = { data: (data || []) as Document[], total: count ?? 0 };
