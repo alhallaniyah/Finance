@@ -80,7 +80,7 @@ function buildReceiptLayout(payload) {
   }
   if(payload.vat > 0)
   {
-      line.push(centerText('TAX INVOICE'))
+      lines.push(centerText('TAX INVOICE'))
   }
   lines.push(centerText(payload.companyName || 'Company'));
   if (payload.companyAddress) lines.push(centerText(payload.companyAddress));
