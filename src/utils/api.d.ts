@@ -21,4 +21,8 @@ export type ReceiptPayload = {
   mode?: 'print' | 'pdf';
 };
 
-export function generateReceipt(data: ReceiptPayload): Promise<string | { printed: boolean } | { ok: true }>;
+/**
+ * Generate and print a receipt using the BIXOLON Web Print SDK commands.
+ * Falls back to a simple HTML preview when the SDK is unavailable.
+ */
+export function generateReceipt(data: ReceiptPayload): Promise<string | { printed: boolean } | { ok: true } | { fallback: string }>;
