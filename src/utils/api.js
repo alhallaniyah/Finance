@@ -78,6 +78,10 @@ function buildReceiptLayout(payload) {
     lines.push(centerText(payload.logoText));
     lines.push('');
   }
+  if(payload.vat > 0)
+  {
+      line.push(centerText('TAX INVOICE'))
+  }
   lines.push(centerText(payload.companyName || 'Company'));
   if (payload.companyAddress) lines.push(centerText(payload.companyAddress));
   const companyPhone = payload.companyPhone || payload.companyTel || payload.companyTelephone || payload.companyPhoneNumber;
