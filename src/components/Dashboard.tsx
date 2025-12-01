@@ -66,20 +66,30 @@ export default function Dashboard({
   const [totalCount, setTotalCount] = useState(0);
 
   useEffect(() => {
-    loadDocuments();
     (async () => {
       const role = await supabaseHelpers.getCurrentUserRole();
       setUserRole(role);
     })();
   }, []);
 
+  useEffect(() => {
+    loadDocuments(currentPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, searchTerm, filterType, filterStatus, filterOrigin, filterDateFrom, filterDateTo]);
+
   async function loadDocuments(page: number = currentPage) {
     setLoading(true);
     try {
-      const { data, total } = await supabaseHelpers.getDocumentsPage(page, pageSize);
+      const { data, total } = await supabaseHelpers.getDocumentsPage(page, pageSize, {
+        searchTerm,
+        filterType,
+        filterStatus,
+        filterOrigin,
+        filterDateFrom,
+        filterDateTo,
+      });
       setDocuments(data);
       setTotalCount(total);
-      setCurrentPage(page);
       setSelectedDocuments(new Set()); // Clear selections when reloading
     } catch (error) {
       console.error('Error loading documents:', error);
@@ -140,10 +150,10 @@ export default function Dashboard({
   }
 
   function toggleSelectAll() {
-    if (selectedDocuments.size === filteredDocuments.length) {
+    if (selectedDocuments.size === documents.length) {
       setSelectedDocuments(new Set());
     } else {
-      setSelectedDocuments(new Set(filteredDocuments.map(doc => doc.id)));
+      setSelectedDocuments(new Set(documents.map(doc => doc.id)));
     }
   }
 
@@ -154,29 +164,8 @@ export default function Dashboard({
     setFilterDateFrom('');
     setFilterDateTo('');
     setFilterOrigin('all');
+    setCurrentPage(1);
   }
-
-  const filteredDocuments = documents.filter((doc) => {
-    const matchesSearch =
-      (doc.client_name ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      doc.document_number.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = filterType === 'all' || doc.document_type === filterType;
-    const matchesStatus = filterStatus === 'all' || (doc.status ?? '') === filterStatus;
-    const matchesOrigin = filterOrigin === 'all' || (doc.origin ?? 'dashboard') === filterOrigin;
-    
-    let matchesDateRange = true;
-    if (filterDateFrom || filterDateTo) {
-      const docDate = doc.issue_date ? new Date(doc.issue_date) : null;
-      if (filterDateFrom && docDate) {
-        matchesDateRange = matchesDateRange && docDate >= new Date(filterDateFrom);
-      }
-      if (filterDateTo && docDate) {
-        matchesDateRange = matchesDateRange && docDate <= new Date(filterDateTo);
-      }
-    }
-    
-    return matchesSearch && matchesType && matchesStatus && matchesOrigin && matchesDateRange;
-  });
 
   const stats = {
     quotations: documents.filter((d) => d.document_type === 'quotation').length,
@@ -321,7 +310,10 @@ export default function Dashboard({
                 type="text"
                 placeholder="Search by client name or document number..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
                 className="w-full pl-9 pr-3 py-2 sm:py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               />
             </div>
@@ -399,7 +391,10 @@ export default function Dashboard({
                 <label className="block text-sm font-medium text-slate-700 mb-2">Document Type</label>
                 <select
                   value={filterType}
-                  onChange={(e) => setFilterType(e.target.value)}
+                  onChange={(e) => {
+                    setFilterType(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 >
                   <option value="all">All Types</option>
@@ -413,7 +408,10 @@ export default function Dashboard({
                 <label className="block text-sm font-medium text-slate-700 mb-2">Status</label>
                 <select
                   value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
+                  onChange={(e) => {
+                    setFilterStatus(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 >
                   <option value="all">All Statuses</option>
@@ -428,7 +426,10 @@ export default function Dashboard({
                 <label className="block text-sm font-medium text-slate-700 mb-2">Source</label>
                 <select
                   value={filterOrigin}
-                  onChange={(e) => setFilterOrigin(e.target.value)}
+                  onChange={(e) => {
+                    setFilterOrigin(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 >
                   <option value="all">All Sources</option>
@@ -442,7 +443,10 @@ export default function Dashboard({
                 <input
                   type="date"
                   value={filterDateFrom}
-                  onChange={(e) => setFilterDateFrom(e.target.value)}
+                  onChange={(e) => {
+                    setFilterDateFrom(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
@@ -452,7 +456,10 @@ export default function Dashboard({
                 <input
                   type="date"
                   value={filterDateTo}
-                  onChange={(e) => setFilterDateTo(e.target.value)}
+                  onChange={(e) => {
+                    setFilterDateTo(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
@@ -464,7 +471,7 @@ export default function Dashboard({
           <div className="flex justify-center items-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
           </div>
-        ) : filteredDocuments.length === 0 ? (
+        ) : documents.length === 0 ? (
           <div className="bg-white rounded-xl p-12 text-center shadow-sm border border-slate-200">
             <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-slate-800 mb-2">No documents found</h3>
@@ -476,18 +483,18 @@ export default function Dashboard({
           </div>
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
-            {filteredDocuments.length > 0 && userRole === 'admin' && (
+            {documents.length > 0 && userRole === 'admin' && (
               <div className="px-6 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-3">
                 <input
                   type="checkbox"
-                  checked={selectedDocuments.size === filteredDocuments.length && filteredDocuments.length > 0}
+                  checked={selectedDocuments.size === documents.length && documents.length > 0}
                   onChange={toggleSelectAll}
                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
                 <span className="text-sm text-slate-600">
                   {selectedDocuments.size > 0 
-                    ? `${selectedDocuments.size} of ${filteredDocuments.length} selected`
-                    : `Select all ${filteredDocuments.length} documents`
+                    ? `${selectedDocuments.size} of ${documents.length} selected`
+                    : `Select all ${documents.length} documents`
                   }
                 </span>
               </div>
@@ -521,7 +528,7 @@ export default function Dashboard({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {filteredDocuments.map((doc) => {
+                {documents.map((doc) => {
                   const originKey = (
                     doc.origin === 'pos_in_store' || doc.origin === 'pos_delivery' ? doc.origin : 'dashboard'
                   ) as keyof typeof originMeta;
