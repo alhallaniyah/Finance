@@ -19,11 +19,29 @@ export default function BatchProcessRunner({ batch, onBack, onFinished }: BatchP
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showError, setShowError] = useState(false);
+
+  function scheduleErrorReveal() {
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+    setShowError(false);
+    errorTimerRef.current = setTimeout(() => setShowError(true), 10_000); // allow slow connections to settle
+  }
+
+  function clearErrorTimer() {
+    if (errorTimerRef.current) {
+      clearTimeout(errorTimerRef.current);
+      errorTimerRef.current = null;
+    }
+  }
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
+        clearErrorTimer();
+        setError(null);
+        setShowError(false);
         const [procs, pts] = await Promise.all([
           supabaseHelpers.getKitchenProcessesForBatch(batch.id),
           supabaseHelpers.getKitchenProcessTypes(),
@@ -36,9 +54,14 @@ export default function BatchProcessRunner({ batch, onBack, onFinished }: BatchP
         setCurrentIndex(Math.max(0, idx));
       } catch (e: any) {
         setError(e?.message || 'Failed to load batch processes');
+        scheduleErrorReveal();
       }
     })();
-    return () => { mounted = false; stopTimer(); };
+    return () => {
+      mounted = false;
+      stopTimer();
+      clearErrorTimer();
+    };
   }, [batch.id]);
 
   function startTimer(startIso?: string) {
@@ -134,7 +157,7 @@ export default function BatchProcessRunner({ batch, onBack, onFinished }: BatchP
           <h1 className="text-lg md:text-2xl font-bold text-slate-800">Batch Process Runner</h1>
         </div>
 
-        {error && <div className="mb-4 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{error}</div>}
+        {error && showError && <div className="mb-4 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{error}</div>}
 
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           {processes.length === 0 && (

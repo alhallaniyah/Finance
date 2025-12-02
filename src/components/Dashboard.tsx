@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Document } from '../lib/supabaseHelpers';
 import { supabaseHelpers } from '../lib/supabaseHelpers';
-import { Search, FileText, FileSpreadsheet, Truck, Settings, Plus, Eye, CreditCard as Edit, Copy, Upload, Trash2, Filter, ShoppingCart, Shield, Timer, LogOut } from 'lucide-react';
+import { Search, FileText, FileSpreadsheet, Truck, Settings, Plus, Eye, CreditCard as Edit, Copy, Upload, Trash2, Filter, ShoppingCart, Shield, Timer, LogOut, Download, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { formatCurrency, formatDate } from '../lib/documentHelpers';
 import ExcelImport from './ExcelImport';
+import * as XLSX from 'xlsx';
 
 const originMeta = {
   dashboard: {
@@ -51,19 +52,24 @@ export default function Dashboard({
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [filterOrigin, setFilterOrigin] = useState<string>('all');
+  const [filterType, setFilterType] = useState<'quotation' | 'invoice' | 'delivery_note' | 'all'>('all');
+  const [filterStatus, setFilterStatus] = useState<'draft' | 'sent' | 'paid' | 'cancelled' | 'all'>('all');
+  const [filterOrigin, setFilterOrigin] = useState<'dashboard' | 'pos_in_store' | 'pos_delivery' | 'all'>('all');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
+  const [sortColumn, setSortColumn] = useState<'created_at' | 'issue_date' | 'document_number' | 'total'>('created_at');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [userRole, setUserRole] = useState<'admin' | 'manager' | 'sales' | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [exporting, setExporting] = useState(false);
   const pageSize = 10;
   const [totalCount, setTotalCount] = useState(0);
+  const [stats, setStats] = useState({ quotations: 0, invoices: 0, deliveryNotes: 0, totalRevenue: 0 });
+  const [statsLoading, setStatsLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -74,8 +80,9 @@ export default function Dashboard({
 
   useEffect(() => {
     loadDocuments(currentPage);
+    loadStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, searchTerm, filterType, filterStatus, filterOrigin, filterDateFrom, filterDateTo]);
+  }, [currentPage, searchTerm, filterType, filterStatus, filterOrigin, filterDateFrom, filterDateTo, sortColumn, sortDirection]);
 
   async function loadDocuments(page: number = currentPage) {
     setLoading(true);
@@ -87,6 +94,8 @@ export default function Dashboard({
         filterOrigin,
         filterDateFrom,
         filterDateTo,
+        sortColumn,
+        sortDirection,
       });
       setDocuments(data);
       setTotalCount(total);
@@ -97,11 +106,34 @@ export default function Dashboard({
     setLoading(false);
   }
 
-  useEffect(() => {
-    // Reload when page changes
-    loadDocuments(currentPage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage]);
+  async function loadStats() {
+    setStatsLoading(true);
+    try {
+      const docs = await supabaseHelpers.getDocumentsForExport({
+        searchTerm,
+        filterType,
+        filterStatus,
+        filterOrigin,
+        filterDateFrom,
+        filterDateTo,
+        sortColumn,
+        sortDirection,
+      });
+      const nextStats = {
+        quotations: docs.filter((d) => d.document_type === 'quotation').length,
+        invoices: docs.filter((d) => d.document_type === 'invoice').length,
+        deliveryNotes: docs.filter((d) => d.document_type === 'delivery_note').length,
+        totalRevenue: docs
+          .filter((d) => d.document_type === 'invoice' && d.status === 'paid')
+          .reduce((sum, d) => sum + Number(d.total || 0), 0),
+      };
+      setStats(nextStats);
+    } catch (error) {
+      console.error('Error loading dashboard stats:', error);
+    } finally {
+      setStatsLoading(false);
+    }
+  }
 
   async function handleBulkDelete() {
     if (selectedDocuments.size === 0) return;
@@ -139,6 +171,42 @@ export default function Dashboard({
     }
   }
 
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const docs = await supabaseHelpers.getDocumentsForExport({
+        searchTerm,
+        filterType,
+        filterStatus,
+        filterOrigin,
+        filterDateFrom,
+        filterDateTo,
+        sortColumn,
+        sortDirection,
+      });
+      const rows = docs.map((doc) => ({
+        Document: doc.document_number,
+        Type: getDocumentTypeLabel(doc.document_type),
+        Client: doc.client_name || '',
+        Email: doc.client_email || '',
+        Phone: doc.client_phone || '',
+        Date: doc.issue_date ? formatDate(doc.issue_date) : '',
+        Status: doc.status || '',
+        Origin: doc.origin || 'dashboard',
+        Total: Number(doc.total || 0),
+      }));
+      const sheet = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, sheet, 'Documents');
+      XLSX.writeFile(wb, 'documents_export.xlsx');
+    } catch (error) {
+      console.error('Error exporting documents:', error);
+      alert('Failed to export documents. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function toggleDocumentSelection(documentId: string) {
     const newSelection = new Set(selectedDocuments);
     if (newSelection.has(documentId)) {
@@ -164,17 +232,28 @@ export default function Dashboard({
     setFilterDateFrom('');
     setFilterDateTo('');
     setFilterOrigin('all');
+    setSortColumn('created_at');
+    setSortDirection('desc');
     setCurrentPage(1);
   }
 
-  const stats = {
-    quotations: documents.filter((d) => d.document_type === 'quotation').length,
-    invoices: documents.filter((d) => d.document_type === 'invoice').length,
-    deliveryNotes: documents.filter((d) => d.document_type === 'delivery_note').length,
-    totalRevenue: documents
-      .filter((d) => d.document_type === 'invoice' && d.status === 'paid')
-      .reduce((sum, d) => sum + Number(d.total), 0),
-  };
+  function handleSort(column: 'issue_date' | 'total') {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection(column === 'total' ? 'desc' : 'asc');
+    }
+    setCurrentPage(1);
+  }
+
+  function renderSortIcon(column: 'issue_date' | 'total') {
+    if (sortColumn !== column) return <ArrowUpDown className="w-4 h-4 text-slate-400" />;
+    return sortDirection === 'asc'
+      ? <ArrowUp className="w-4 h-4 text-blue-600" />
+      : <ArrowDown className="w-4 h-4 text-blue-600" />;
+  }
+
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const startIndex = totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const endIndex = totalCount === 0 ? 0 : Math.min(startIndex + documents.length - 1, totalCount);
@@ -258,7 +337,7 @@ export default function Dashboard({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-slate-600 text-xs sm:text-sm font-medium">Quotations</p>
-                  <p className="text-lg sm:text-xl font-bold text-slate-800 mt-0.5">{stats.quotations}</p>
+                  <p className="text-lg sm:text-xl font-bold text-slate-800 mt-0.5">{statsLoading ? '…' : stats.quotations}</p>
                 </div>
                 <div className="bg-blue-50 p-1.5 sm:p-2 rounded-lg">
                   <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
@@ -270,7 +349,7 @@ export default function Dashboard({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-slate-600 text-xs sm:text-sm font-medium">Receipts</p>
-                  <p className="text-lg sm:text-xl font-bold text-slate-800 mt-0.5">{stats.invoices}</p>
+                  <p className="text-lg sm:text-xl font-bold text-slate-800 mt-0.5">{statsLoading ? '…' : stats.invoices}</p>
                 </div>
                 <div className="bg-emerald-50 p-1.5 sm:p-2 rounded-lg">
                   <FileSpreadsheet className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" />
@@ -282,7 +361,7 @@ export default function Dashboard({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-slate-600 text-xs sm:text-sm font-medium">Delivery Notes</p>
-                  <p className="text-lg sm:text-xl font-bold text-slate-800 mt-0.5">{stats.deliveryNotes}</p>
+                  <p className="text-lg sm:text-xl font-bold text-slate-800 mt-0.5">{statsLoading ? '…' : stats.deliveryNotes}</p>
                 </div>
                 <div className="bg-orange-50 p-1.5 sm:p-2 rounded-lg">
                   <Truck className="w-4 h-4 sm:w-5 sm:h-5 text-orange-600" />
@@ -294,7 +373,7 @@ export default function Dashboard({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-slate-600 text-xs sm:text-sm font-medium">Revenue</p>
-                  <p className="text-lg sm:text-xl font-bold text-slate-800 mt-0.5">{formatCurrency(stats.totalRevenue)}</p>
+                  <p className="text-lg sm:text-xl font-bold text-slate-800 mt-0.5">{statsLoading ? '…' : formatCurrency(stats.totalRevenue)}</p>
                 </div>
                 <div className="bg-teal-50 p-1.5 sm:p-2 rounded-lg">
                   <FileSpreadsheet className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600" />
@@ -348,6 +427,15 @@ export default function Dashboard({
               Import Excel
             </button>
 
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-white text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50"
+            >
+              <Download className="w-4 h-4 sm:w-5 sm:h-5" />
+              {exporting ? 'Exporting…' : 'Export Excel'}
+            </button>
+
             <div className="flex gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
               <button
                 onClick={() => onCreateDocument('quotation')}
@@ -391,10 +479,10 @@ export default function Dashboard({
                 <label className="block text-sm font-medium text-slate-700 mb-2">Document Type</label>
                 <select
                   value={filterType}
-                  onChange={(e) => {
-                    setFilterType(e.target.value);
-                    setCurrentPage(1);
-                  }}
+                onChange={(e) => {
+                  setFilterType(e.target.value as 'quotation' | 'invoice' | 'delivery_note' | 'all');
+                  setCurrentPage(1);
+                }}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 >
                   <option value="all">All Types</option>
@@ -408,10 +496,10 @@ export default function Dashboard({
                 <label className="block text-sm font-medium text-slate-700 mb-2">Status</label>
                 <select
                   value={filterStatus}
-                  onChange={(e) => {
-                    setFilterStatus(e.target.value);
-                    setCurrentPage(1);
-                  }}
+                onChange={(e) => {
+                  setFilterStatus(e.target.value as 'draft' | 'sent' | 'paid' | 'cancelled' | 'all');
+                  setCurrentPage(1);
+                }}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 >
                   <option value="all">All Statuses</option>
@@ -426,10 +514,10 @@ export default function Dashboard({
                 <label className="block text-sm font-medium text-slate-700 mb-2">Source</label>
                 <select
                   value={filterOrigin}
-                  onChange={(e) => {
-                    setFilterOrigin(e.target.value);
-                    setCurrentPage(1);
-                  }}
+                onChange={(e) => {
+                  setFilterOrigin(e.target.value as 'dashboard' | 'pos_in_store' | 'pos_delivery' | 'all');
+                  setCurrentPage(1);
+                }}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 >
                   <option value="all">All Sources</option>
@@ -514,10 +602,24 @@ export default function Dashboard({
                     Client
                   </th>
                   <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                    Date
+                    <button
+                      type="button"
+                      onClick={() => handleSort('issue_date')}
+                      className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-800"
+                    >
+                      <span>Date</span>
+                      {renderSortIcon('issue_date')}
+                    </button>
                   </th>
                   <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                    Total
+                    <button
+                      type="button"
+                      onClick={() => handleSort('total')}
+                      className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-800"
+                    >
+                      <span>Total</span>
+                      {renderSortIcon('total')}
+                    </button>
                   </th>
                   <th className="px-3 py-2 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider hidden lg:table-cell">
                     Status

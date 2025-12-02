@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Timer, CheckCircle, LogOut } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { supabaseHelpers, KitchenBatch } from '../lib/supabaseHelpers';
@@ -18,6 +18,8 @@ export default function KitchenDashboard({ onBack, onStartNewBatch, onRunBatch, 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<'admin' | 'manager' | 'sales' | null>(null);
+  const [showError, setShowError] = useState(false);
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -35,6 +37,12 @@ export default function KitchenDashboard({ onBack, onStartNewBatch, onRunBatch, 
   }, []);
 
   async function load() {
+    if (errorTimerRef.current) {
+      clearTimeout(errorTimerRef.current);
+      errorTimerRef.current = null;
+    }
+    setShowError(false);
+    errorTimerRef.current = setTimeout(() => setShowError(true), 10_000); // allow slow connections to resolve
     setLoading(true);
     setError(null);
     try {
@@ -44,12 +52,23 @@ export default function KitchenDashboard({ onBack, onStartNewBatch, onRunBatch, 
     } catch (e: any) {
       setError(e?.message || 'Failed to load batches');
     } finally {
+      if (errorTimerRef.current) {
+        clearTimeout(errorTimerRef.current);
+        errorTimerRef.current = null;
+      }
+      setShowError(false);
       setLoading(false);
     }
   }
 
   useEffect(() => {
     load();
+    return () => {
+      if (errorTimerRef.current) {
+        clearTimeout(errorTimerRef.current);
+        errorTimerRef.current = null;
+      }
+    };
   }, [page]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -98,7 +117,7 @@ export default function KitchenDashboard({ onBack, onStartNewBatch, onRunBatch, 
           <div className="flex justify-center items-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
           </div>
-        ) : error ? (
+        ) : error && showError ? (
           <div className="bg-white rounded-xl p-6 border border-red-200 text-red-700">{error}</div>
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
