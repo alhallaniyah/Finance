@@ -18,6 +18,7 @@ build/
 .env.development.local
 .env.test.local
 .env.production.local
+.SupabaseClient
 
 # IDE and editor files
 .vscode/
