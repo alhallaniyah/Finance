@@ -1887,6 +1887,7 @@ export const supabaseHelpers = {
       } | null;
       discountAmount?: number;
       issueDate?: string;
+      vatExempt?: boolean;
     }
   ): Promise<Document> {
     const { data: { user } } = await supabase.auth.getUser();
@@ -1917,10 +1918,10 @@ export const supabaseHelpers = {
 
     const subtotal = items.reduce((sum, item) => sum + (item.amount || 0), 0);
     const settings = await supabaseHelpers.getCompanySettings();
-    const taxRate = settings?.tax_rate || 0;
+    const taxRate = options.vatExempt ? 0 : (settings?.tax_rate || 0);
     const discountAmount = Math.max(0, Number(options.discountAmount || 0));
     const taxableBase = Math.max(subtotal - discountAmount, 0);
-    const taxAmount = (taxableBase * taxRate) / 100;
+    const taxAmount = options.vatExempt ? 0 : (taxableBase * taxRate) / 100;
     const total = taxableBase + taxAmount;
     const managedForTotals = Boolean(options.deliveryProvider?.managed);
     const deliveryFeeForTotals =
@@ -1970,6 +1971,8 @@ export const supabaseHelpers = {
       }
     }
 
+    const notesSuffix = options.vatExempt ? ' (VAT Exempt)' : '';
+
     // Create documents
     // In-store: single invoice
     if (mode === 'in-store') {
@@ -1989,7 +1992,7 @@ export const supabaseHelpers = {
         tax_amount: taxAmount,
         discount_amount: discountAmount,
         total,
-        notes: `POS Order (in-store)`,
+        notes: `POS Order (in-store)${notesSuffix}`,
         terms: settings?.default_terms || '',
         status: 'paid',
         origin: 'pos_in_store',
@@ -2034,7 +2037,7 @@ export const supabaseHelpers = {
       tax_amount: taxAmount,
       discount_amount: discountAmount,
       total: invoiceTotal,
-      notes: `POS Order (delivery)`,
+      notes: `POS Order (delivery)${notesSuffix}`,
       terms: settings?.default_terms || '',
       status: 'paid',
       origin: 'pos_delivery',

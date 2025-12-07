@@ -102,6 +102,12 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
   const [paymentMethodLS, setPaymentMethodLS] = useState<'cash' | 'transfer'>('cash');
   const [selectedShowForPayment, setSelectedShowForPayment] = useState<LiveShow | null>(null);
+  const [selectedLiveShowIds, setSelectedLiveShowIds] = useState<string[]>([]);
+  const [showCombinedModal, setShowCombinedModal] = useState(false);
+  const [combinedPaymentMethod, setCombinedPaymentMethod] = useState<'cash' | 'transfer'>('cash');
+  const [combinedIssueDate, setCombinedIssueDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [combinedVatExempt, setCombinedVatExempt] = useState(false);
+  const [vatExempt, setVatExempt] = useState(false);
 
   useEffect(() => {
     supabaseHelpers
@@ -246,9 +252,10 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
   }, 0);
 
   const taxRate = Number(companySettings?.tax_rate || 0);
+  const effectiveTaxRate = vatExempt ? 0 : taxRate;
   const subtotal = mode === 'live_show' ? Math.max(0, Number(estimatedTotal || 0)) : cartSubtotal;
   const taxableBase = Math.max(subtotal - (mode === 'live_show' ? 0 : discountAmount), 0);
-  const taxAmount = (taxableBase * taxRate) / 100;
+  const taxAmount = (taxableBase * effectiveTaxRate) / 100;
   const total = taxableBase + taxAmount + (mode === 'delivery' ? Math.max(0, Number(deliveryFee || 0)) : 0);
   // selectedProvider defined above
 
@@ -398,23 +405,62 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
     return list.reduce((sum, p) => sum + Math.max(0, Number(p.amount || 0)), 0);
   }
 
+  function getLiveShowTotals(showId: string) {
+    const payments = paymentsMap[showId] || [];
+    const qs = quotationsMap[showId] || [];
+    const estimated = Math.max(0, Number(qs[0]?.total_estimated || 0));
+    const advancePaid = sumPayments(payments, 'advance');
+    const fullPaid = sumPayments(payments, 'full');
+    const balance = Math.max(0, estimated - (advancePaid + fullPaid));
+    return { estimated, advancePaid, fullPaid, balance, quotation: qs[0] || null };
+  }
+
+  const paymentSummary = useMemo(() => {
+    if (!selectedShowForPayment) return null;
+    return getLiveShowTotals(selectedShowForPayment.id);
+  }, [selectedShowForPayment, paymentsMap, quotationsMap]);
+
   function openPaymentModal(show: LiveShow, type: 'advance' | 'full') {
     setSelectedShowForPayment(show);
     setPaymentType(type);
     try {
-      const payments = paymentsMap[show.id] || [];
-      const qs = quotationsMap[show.id] || [];
-      const estimated = Math.max(0, Number(qs[0]?.total_estimated || 0));
-      const adv = sumPayments(payments, 'advance');
-      const full = sumPayments(payments, 'full');
-      const balance = Math.max(0, estimated - (adv + full));
-      setPaymentAmount(type === 'full' ? balance : 0);
+      const totals = getLiveShowTotals(show.id);
+      setPaymentAmount(type === 'full' ? totals.balance : 0);
     } catch {
       setPaymentAmount(0);
     }
     setPaymentMethodLS('cash');
     setShowPaymentModal(true);
   }
+
+  useEffect(() => {
+    // Drop selections not on the current page to avoid stale IDs
+    setSelectedLiveShowIds((prev) => prev.filter((id) => liveShows.some((s) => s.id === id)));
+  }, [liveShows]);
+
+  function toggleLiveShowSelection(id: string) {
+    setSelectedLiveShowIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  function toggleSelectAllLiveShows(onPageOnly: boolean = true) {
+    const pageIds = liveShows.map((s) => s.id);
+    const allSelected = pageIds.every((id) => selectedLiveShowIds.includes(id));
+    if (allSelected) {
+      setSelectedLiveShowIds((prev) => prev.filter((id) => !pageIds.includes(id)));
+    } else {
+      setSelectedLiveShowIds((prev) =>
+        Array.from(new Set([...prev, ...(onPageOnly ? pageIds : [])]))
+      );
+    }
+  }
+
+  const selectedLiveShows = liveShows.filter((s) => selectedLiveShowIds.includes(s.id));
+  const selectedClientId = selectedLiveShows.length > 0 ? selectedLiveShows[0].client_id : null;
+  const hasMixedClients = selectedLiveShows.some((s) => s.client_id !== selectedClientId);
+  const selectedBalances = selectedLiveShows.map((s) => getLiveShowTotals(s.id));
+  const combinedBalance = selectedBalances.reduce((sum, t) => sum + t.balance, 0);
 
   async function submitLiveShowPayment() {
     if (!selectedShowForPayment) return;
@@ -505,6 +551,112 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
     } catch (e: any) {
       console.error('Failed to record live show payment', e);
       setError(e?.message || 'Failed to record payment.');
+    }
+  }
+
+  function openCombinedReceiptModal() {
+    if (selectedLiveShows.length < 2) {
+      setError('Select at least two live shows to combine.');
+      return;
+    }
+    if (hasMixedClients) {
+      setError('Selected live shows must belong to the same customer.');
+      return;
+    }
+    if (combinedBalance <= 0) {
+      setError('Nothing to collect. All selected shows are fully paid.');
+      return;
+    }
+    setCombinedIssueDate(new Date().toISOString().split('T')[0]);
+    setCombinedPaymentMethod('cash');
+    setCombinedVatExempt(vatExempt);
+    setShowCombinedModal(true);
+  }
+
+  async function submitCombinedReceipt() {
+    if (selectedLiveShows.length < 1 || !selectedClientId) {
+      setError('Select live shows to combine.');
+      return;
+    }
+    if (hasMixedClients) {
+      setError('Selected live shows must belong to the same customer.');
+      return;
+    }
+    const balances = selectedLiveShows.map((s) => ({ show: s, totals: getLiveShowTotals(s.id) }));
+    const payable = balances.filter(({ totals }) => totals.balance > 0);
+    if (payable.length === 0) {
+      setError('Nothing to collect. All selected shows are fully paid.');
+      return;
+    }
+    const subtotal = payable.reduce((sum, { totals }) => sum + totals.balance, 0);
+    const taxRate = combinedVatExempt ? 0 : Number(companySettings?.tax_rate || 0);
+    const taxAmount = (subtotal * taxRate) / 100;
+    const totalCombined = subtotal + taxAmount;
+    try {
+      const client = await supabaseHelpers.getClientById(selectedClientId);
+      const docNumber = await generateDocumentNumber('invoice');
+      const notes = `Combined receipt for Live Shows ${payable.map(({ show }) => show.show_number).join(', ')}${combinedVatExempt ? ' (VAT Exempt)' : ''}`;
+      const invoice = await supabaseHelpers.createDocument({
+        document_type: 'invoice',
+        document_number: docNumber,
+        client_id: client?.id || selectedClientId,
+        client_name: client?.name || '',
+        client_email: client?.email || '',
+        client_phone: client?.phone || '',
+        client_address: client?.address || '',
+        client_trn: client?.trn || '',
+        client_emirate: client?.emirate || '',
+        issue_date: combinedIssueDate || new Date().toISOString().split('T')[0],
+        subtotal: subtotal,
+        tax_amount: taxAmount,
+        discount_amount: 0,
+        total: totalCombined,
+        notes,
+        terms: companySettings?.default_terms || '',
+        status: 'paid',
+        origin: 'dashboard',
+        payment_method: combinedPaymentMethod,
+        payment_card_amount: 0,
+        payment_cash_amount: combinedPaymentMethod === 'cash' ? totalCombined : 0,
+        delivery_fee: 0,
+        delivery_provider_id: null,
+      });
+
+      for (const { show, totals } of payable) {
+        await supabaseHelpers.createDocumentItem({
+          document_id: invoice.id,
+          description: `Live Show ${show.show_number}${show.item_name ? ` (${show.item_name})` : ''}`,
+          quantity: 1,
+          weight: 0,
+          sell_by: 'unit',
+          item_id: null,
+          unit_price: totals.balance,
+          amount: totals.balance,
+        });
+      }
+
+      for (const { show, totals } of payable) {
+        const qs = quotationsMap[show.id] || (await supabaseHelpers.getLiveShowQuotations(show.id));
+        const q = qs.length > 0 ? qs[0] : null;
+        const payment = await supabaseHelpers.recordLiveShowPayment(show.id, {
+          type: 'full',
+          amount: totals.balance,
+          method: combinedPaymentMethod,
+          quotation_id: q?.id || null,
+        });
+        const iso = `${combinedIssueDate || new Date().toISOString().split('T')[0]}T12:00:00Z`;
+        try { await supabaseHelpers.updateLiveShowPaymentDate(payment.id, iso); } catch {}
+      }
+
+      setShowCombinedModal(false);
+      setSelectedLiveShowIds([]);
+      await loadLiveShowsPage();
+      if (onOrderSaved) {
+        onOrderSaved(invoice.id, { print: true });
+      }
+    } catch (e: any) {
+      console.error('Failed to create combined receipt', e);
+      setError(e?.message || 'Failed to create combined receipt.');
     }
   }
 
@@ -746,8 +898,7 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
         };
         const res = await supabaseHelpers.createLiveShowAndQuotation(payload);
         console.log('Live Show created:', res);
-        // Reset LS-specific and customer fields
-        setCart([]);
+        // Reset LS-specific fields but keep customer so multiple shows can be added for the same client
         setLsItemName('');
         setLsKg(0);
         setLsPeopleCount(0);
@@ -756,12 +907,7 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
         setLsLocation('');
         setLsNotes('');
         setEstimatedTotal(0);
-        setCustomer({ name: '', phone: '', address: '', emirate: '' });
-        if (onOrderSaved && res.document?.id) {
-          onOrderSaved(res.document.id, { print: true });
-        } else {
-          onBack();
-        }
+        await loadLiveShowsPage();
         return;
       }
 
@@ -845,6 +991,7 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
               : null,
           discountAmount: discountAmount,
           issueDate: orderDate,
+          vatExempt,
         }
       );
 
@@ -1069,17 +1216,27 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
 
                 {/* Existing Live Shows table for multi-stage flow */}
                 <div className="border-t border-slate-200 pt-4 mt-4">
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center justify-between mb-2 gap-2">
                     <h3 className="text-sm font-semibold text-slate-700">Existing Live Shows</h3>
-                    <button
-                      onClick={async () => {
-                        // Manual refresh
-                        await loadLiveShowsPage();
-                      }}
-                      className="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50"
-                    >
-                      Refresh
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={openCombinedReceiptModal}
+                        className="text-xs px-3 py-1 bg-slate-800 text-white rounded hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={selectedLiveShows.length < 2 || hasMixedClients || combinedBalance <= 0}
+                        title="Generate one receipt for selected live shows (same customer)"
+                      >
+                        Combined Receipt
+                      </button>
+                      <button
+                        onClick={async () => {
+                          // Manual refresh
+                          await loadLiveShowsPage();
+                        }}
+                        className="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50"
+                      >
+                        Refresh
+                      </button>
+                    </div>
                   </div>
                   {liveShowsLoading ? (
                     <div className="text-sm text-slate-500">Loading live shows…</div>
@@ -1090,6 +1247,14 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                       <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
                         <thead className="bg-slate-50 text-slate-700">
                           <tr>
+                            <th className="text-left px-3 py-2 border-b w-10">
+                              <input
+                                type="checkbox"
+                                className="rounded border-slate-300"
+                                checked={liveShows.length > 0 && liveShows.every((s) => selectedLiveShowIds.includes(s.id))}
+                                onChange={() => toggleSelectAllLiveShows(true)}
+                              />
+                            </th>
                             <th className="text-left px-3 py-2 border-b">ID</th>
                             <th className="text-left px-3 py-2 border-b">Show #</th>
                             <th className="text-left px-3 py-2 border-b">Date</th>
@@ -1113,6 +1278,14 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                             const balance = Math.max(0, estimated - (adv + full));
                             return (
                               <tr key={s.id} className="border-b last:border-b-0">
+                                <td className="px-3 py-2 text-center">
+                                  <input
+                                    type="checkbox"
+                                    className="rounded border-slate-300"
+                                    checked={selectedLiveShowIds.includes(s.id)}
+                                    onChange={() => toggleLiveShowSelection(s.id)}
+                                  />
+                                </td>
                                 <td className="px-3 py-2 text-xs text-slate-500">{s.id}</td>
                                 <td className="px-3 py-2 font-medium">{s.show_number}</td>
                                 <td className="px-3 py-2">{s.show_date || '—'}</td>
@@ -1420,12 +1593,24 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                 <p>-{discountAmount.toFixed(2)}</p>
               </div>
             )}
-            {taxRate > 0 && (
+            {effectiveTaxRate > 0 && (
               <div className="flex items-center justify-between text-slate-600 mt-2">
-                <p>Tax ({taxRate}% )</p>
+                <p>Tax ({effectiveTaxRate}% {vatExempt ? ' - VAT Exempt' : ''})</p>
                 <p>{taxAmount.toFixed(2)}</p>
               </div>
             )}
+            <div className="mt-2 flex items-center justify-between">
+              <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  className="rounded border-slate-300"
+                  checked={vatExempt}
+                  onChange={(e) => setVatExempt(e.target.checked)}
+                />
+                VAT Exempt this receipt
+              </label>
+              {vatExempt && <span className="text-xs text-amber-600">Tax removed</span>}
+            </div>
             <div className="flex items-center justify-between text-slate-800 font-semibold mt-2">
               <p>Total</p>
               <p>{total.toFixed(2)}</p>
@@ -1766,6 +1951,40 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                 <p className="mb-1"><span className="font-semibold">Date:</span> {selectedShowForPayment.show_date || 'N/A'} at {selectedShowForPayment.show_time || 'N/A'}</p>
                 <p><span className="font-semibold">Location:</span> {selectedShowForPayment.location}</p>
               </div>
+              {paymentSummary && (
+                <div className="grid grid-cols-2 gap-2 mb-3 text-sm">
+                  <div className="p-2 bg-slate-50 border border-slate-200 rounded">
+                    <div className="text-[11px] text-slate-500">Advance Paid</div>
+                    <div className="font-semibold text-slate-800">{paymentSummary.advancePaid.toFixed(2)}</div>
+                  </div>
+                  <div className="p-2 bg-slate-50 border border-slate-200 rounded">
+                    <div className="text-[11px] text-slate-500">Full Paid</div>
+                    <div className="font-semibold text-slate-800">{paymentSummary.fullPaid.toFixed(2)}</div>
+                  </div>
+                  <div className="p-2 bg-slate-50 border border-slate-200 rounded">
+                    <div className="text-[11px] text-slate-500">Estimated</div>
+                    <div className="font-semibold text-slate-800">{paymentSummary.estimated.toFixed(2)}</div>
+                  </div>
+                  <div className="p-2 bg-slate-50 border border-slate-200 rounded">
+                    <div className="text-[11px] text-slate-500">Balance</div>
+                    <div className="font-semibold text-slate-800">{paymentSummary.balance.toFixed(2)}</div>
+                  </div>
+                </div>
+              )}
+              {paymentType === 'advance' && paymentSummary && paymentSummary.balance > 0 && (
+                <div className="mb-3 text-xs text-slate-600 flex items-center justify-between gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                  <span>Customer paying full now? Skip advance and record full payment.</span>
+                  <button
+                    onClick={() => {
+                      setPaymentType('full');
+                      setPaymentAmount(paymentSummary.balance);
+                    }}
+                    className="text-xs font-semibold text-amber-800 underline"
+                  >
+                    Switch to Full
+                  </button>
+                </div>
+              )}
               <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Amount</label>
@@ -1803,6 +2022,99 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
                     Save & Print Receipt
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showCombinedModal && (
+          <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+            <div className="bg-white w-[95vw] max-w-2xl rounded-xl shadow-lg border border-slate-200 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold">Combined Live Show Receipt</h3>
+                <button onClick={() => setShowCombinedModal(false)} className="p-2 hover:bg-slate-50 rounded-lg">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="mb-3 text-sm text-slate-600">
+                <p className="mb-1">Selected shows (same customer):</p>
+                <div className="max-h-48 overflow-auto border border-slate-200 rounded-lg divide-y divide-slate-200">
+                  {selectedLiveShows.map((s) => {
+                    const totals = getLiveShowTotals(s.id);
+                    return (
+                      <div key={s.id} className="p-3 flex items-center justify-between">
+                        <div>
+                          <p className="font-medium text-slate-800">{s.show_number}</p>
+                          <p className="text-xs text-slate-500">{s.show_date || '—'} {s.show_time || ''} • {s.location || 'N/A'}</p>
+                        </div>
+                        <div className="text-right text-sm">
+                          <div className="text-slate-500">Balance</div>
+                          <div className="font-semibold text-slate-800">{totals.balance.toFixed(2)}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {selectedLiveShows.length === 0 && <div className="p-4 text-center text-slate-500">No live shows selected</div>}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Issue Date</label>
+                  <input
+                    type="date"
+                    value={combinedIssueDate}
+                    onChange={(e) => setCombinedIssueDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Payment Method</label>
+                  <select
+                    value={combinedPaymentMethod}
+                    onChange={(e) => setCombinedPaymentMethod(e.target.value as 'cash' | 'transfer')}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="transfer">Bank Transfer</option>
+                  </select>
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700 md:col-span-2">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300"
+                    checked={combinedVatExempt}
+                    onChange={(e) => setCombinedVatExempt(e.target.checked)}
+                  />
+                  Remove VAT for this receipt
+                </label>
+              </div>
+              <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
+                <div>
+                  <p className="text-xs text-slate-500">Subtotal</p>
+                  <p className="text-base font-semibold text-slate-800">{combinedBalance.toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Tax</p>
+                  <p className="text-base font-semibold text-slate-800">
+                    {(combinedBalance * (combinedVatExempt ? 0 : Number(companySettings?.tax_rate || 0)) / 100).toFixed(2)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Total</p>
+                  <p className="text-base font-semibold text-slate-800">
+                    {(combinedBalance + (combinedBalance * (combinedVatExempt ? 0 : Number(companySettings?.tax_rate || 0)) / 100)).toFixed(2)}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button onClick={() => setShowCombinedModal(false)} className="px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+                <button
+                  onClick={submitCombinedReceipt}
+                  className="px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                  disabled={selectedLiveShows.length === 0 || hasMixedClients || combinedBalance <= 0}
+                >
+                  Save & Print Receipt
+                </button>
               </div>
             </div>
           </div>
