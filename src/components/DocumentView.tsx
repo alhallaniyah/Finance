@@ -78,6 +78,7 @@ export default function DocumentView({
     return {
       companyName: companySettings?.company_name || 'Company Name',
       companyAddress: companySettings?.company_address || '',
+      companyTrn: companySettings?.company_trn || '',
       companyPhone: '',
       receiptNo: document.document_number,
       date: document.issue_date ? formatDate(document.issue_date) : '-',
@@ -187,6 +188,8 @@ export default function DocumentView({
     }
   }
 
+  const printAreaId = 'dashboard-print-area';
+
   return (
     <div className="min-h-screen py-8">
       <div className="max-w-5xl mx-auto px-6">
@@ -224,205 +227,198 @@ export default function DocumentView({
           </div>
         </div>
 
-        <div ref={printRef} className={`relative bg-white rounded-xl shadow-sm border border-slate-200 p-12 ${isPOSInStore ? 'print:hidden' : 'print:shadow-none print:border-0'}`}>
-          <div className="flex justify-between items-start mb-8">
-  
-  {/* LEFT SIDE — Company info + Bill To */}
-  <div className="space-y-4">
-    {companySettings?.company_logo_url && (
-      <img
-        src={companySettings.company_logo_url}
-        alt="Company Logo"
-        className="h-20 mb-2 object-contain"
-      />
-    )}
-
-    <h2 className="text-xl font-bold text-slate-800">
-      {companySettings?.company_name || 'Company Name'}
-    </h2>
-
-    <p className="text-slate-600 whitespace-pre-line">
-      {companySettings?.company_address}
-    </p>
-
-    {companySettings?.company_trn && (
-      <p className="text-slate-600">TRN: {companySettings.company_trn}</p>
-    )}
-
-    {/* BILL TO (moved & flattened) */}
-    <div className="pt-4">
-      <h3 className="text-sm font-semibold text-slate-700 mb-1 uppercase">
-        Bill To:
-      </h3>
-      <p className="font-semibold text-slate-800">{document.client_name}</p>
-      {document.client_email && <p className="text-slate-600">{document.client_email}</p>}
-      {document.client_phone && <p className="text-slate-600">{document.client_phone}</p>}
-      {document.client_address && (
-        <p className="text-slate-600 whitespace-pre-line">{document.client_address}</p>
-      )}
-      {document.client_trn && <p className="text-slate-600">TRN: {document.client_trn}</p>}
-      {document.client_emirate && (
-        <p className="text-slate-600">Emirate: {document.client_emirate}</p>
-      )}
-    </div>
-  </div>
-
-  {/* RIGHT SIDE — Document info */}
-  <div className="text-right">
-    <h1 className="text-3xl font-bold text-slate-800 mb-2">{documentTitle}</h1>
-    <p className="text-slate-600 text-sm">
-      <span className="font-semibold">Number:</span> {document.document_number}
-    </p>
-    <p className="text-slate-600 text-sm">
-      <span className="font-semibold">Date:</span>{' '}
-      {document.issue_date ? formatDate(document.issue_date) : '-'}
-    </p>
-    {document.due_date && (
-      <p className="text-slate-600 text-sm">
-        <span className="font-semibold">Due:</span> {formatDate(document.due_date)}
-      </p>
-    )}
-  </div>
-</div>
-
-
-          
-
-          <div className="mb-8">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b-2 border-slate-300">
-                  <th className="text-left py-3 text-sm font-semibold text-slate-700 uppercase">Description</th>
-                  <th className="text-right py-3 text-sm font-semibold text-slate-700 uppercase">Qty</th>
-                  {!isLiveShowQuotation && (
-                    <th className="text-right py-3 text-sm font-semibold text-slate-700 uppercase">Weight</th>
-                  )}
-                  <th className="text-right py-3 text-sm font-semibold text-slate-700 uppercase">Unit Price</th>
-                  <th className="text-right py-3 text-sm font-semibold text-slate-700 uppercase">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.id} className="border-b border-slate-200">
-                    <td className="py-3 text-slate-800">{item.description}</td>
-                    <td className="text-right py-3 text-slate-700">{Number(item.quantity)}</td>
-                    {!isLiveShowQuotation && (
-                      <td className="text-right py-3 text-slate-700">{Number((item as any).weight ?? 0)}</td>
-                    )}
-                    <td className="text-right py-3 text-slate-700">{formatCurrency(Number(item.unit_price))}</td>
-                    <td className="text-right py-3 font-semibold text-slate-800">
-                      {formatCurrency(Number(item.amount))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex justify-end mb-8">
-            <div className="w-80">
-              <div className="flex justify-between py-2 text-slate-700">
-                <span>Subtotal:</span>
-                <span className="font-semibold">{formatCurrency(Number(document.subtotal))}</span>
-              </div>
-              <div className="flex justify-between py-2 text-slate-700">
-                <span>Tax ({companySettings?.tax_rate || 0}%):</span>
-                <span className="font-semibold">{formatCurrency(Number(document.tax_amount))}</span>
-              </div>
-              {Number(document.discount_amount) > 0 && (
-                <div className="flex justify-between py-2 text-slate-700">
-                  <span>Discount:</span>
-                  <span className="font-semibold">-{formatCurrency(Number(document.discount_amount))}</span>
-                </div>
-              )}
-              <div className="flex justify-between py-3 border-t-2 border-slate-300 text-lg font-bold text-slate-800">
-                <span>Total:</span>
-                <span>{formatCurrency(Number(document.total))}</span>
-              </div>
-          </div>
-        </div>
-
-        {(document.payment_method || Number(document.delivery_fee) > 0 || deliveryProvider) && (
-          <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-            {document.payment_method && document.document_type !== 'quotation' && (
-              <div className="p-6 bg-slate-50 border border-slate-200 rounded-lg">
-                <h3 className="text-sm font-semibold text-slate-700 mb-3 uppercase">Payment Details</h3>
-                <div className="space-y-2 text-sm text-slate-700">
-                  <div className="flex justify-between">
-                    <span>Method</span>
-                    <span className="font-medium">{getPaymentMethodLabel(document.payment_method)}</span>
-                  </div>
-                  {Number(document.payment_card_amount) > 0 && (
-                    <div className="flex justify-between">
-                      <span>Card</span>
-                      <span className="font-medium">{formatCurrency(Number(document.payment_card_amount))}</span>
-                    </div>
-                  )}
-                  {Number(document.payment_cash_amount) > 0 && (
-                    <div className="flex justify-between">
-                      <span>Cash</span>
-                      <span className="font-medium">{formatCurrency(Number(document.payment_cash_amount))}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-            {(Number(document.delivery_fee) > 0 || deliveryProvider) && (
-              <div className="p-6 bg-slate-50 border border-slate-200 rounded-lg">
-                <h3 className="text-sm font-semibold text-slate-700 mb-3 uppercase">Delivery Details</h3>
-                <div className="space-y-2 text-sm text-slate-700">
-                  {deliveryProvider?.name && (
-                    <div className="flex justify-between">
-                      <span>Provider</span>
-                      <span className="font-medium">{deliveryProvider.name}</span>
-                    </div>
-                  )}
-                  {deliveryProvider?.phone && (
-                    <div className="flex justify-between">
-                      <span>Phone</span>
-                      <span className="font-medium">{deliveryProvider.phone}</span>
-                    </div>
-                  )}
-                  {typeof deliveryProvider?.managed === 'boolean' && (
-                    <div className="flex justify-between">
-                      <span>Status</span>
-                      <span className="font-medium">
-                        {deliveryProvider.managed ? 'Managed Provider' : 'Unmanaged Provider'}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex justify-between">
-                    <span>Delivery Fee (ref)</span>
-                    <span className="font-medium">{formatCurrency(Number(document.delivery_fee || 0))}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+        {!isPOSInStore && (
+          <style>
+            {`
+              @media print {
+                body * { visibility: hidden; }
+                #${printAreaId}, #${printAreaId} * { visibility: visible; }
+                #${printAreaId} { position: absolute; left: 0; top: 0; width: 100%; }
+              }
+            `}
+          </style>
         )}
 
-        {document.notes && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-slate-700 mb-2 uppercase">Notes:</h3>
-            <p className="text-slate-600 whitespace-pre-line">{document.notes}</p>
-          </div>
-          )}
+        <div
+          id={!isPOSInStore ? printAreaId : undefined}
+          ref={printRef}
+          className={`relative bg-white rounded-xl shadow-sm border border-slate-200 p-8 print:p-8 ${isPOSInStore ? 'print:hidden' : 'print:shadow-none print:border-0'}`}
+        >
+          <div className="space-y-6 text-sm text-slate-700">
+            <div className="border border-slate-300 rounded-lg overflow-hidden">
+              <div className="flex flex-col md:flex-row md:items-start md:justify-between p-4 border-b border-slate-300 gap-4">
+                <div className="flex items-start gap-3">
+                  {companySettings?.company_logo_url && (
+                    <img
+                      src={companySettings.company_logo_url}
+                      alt="Company Logo"
+                      className="h-20 w-auto object-contain"
+                    />
+                  )}
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-800">{companySettings?.company_name || 'Company Name'}</h2>
+                    {companySettings?.company_address && (
+                      <p className="text-slate-600 whitespace-pre-line">{companySettings.company_address}</p>
+                    )}
+                    {companySettings?.company_trn && (
+                      <p className="text-slate-700 font-semibold mt-1">VAT Reg No: {companySettings.company_trn}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{originLabel}</p>
+                  <h1 className="text-2xl font-bold text-slate-800">{documentTitle}</h1>
+                  <p className="text-slate-700"><span className="font-semibold">Receipt No:</span> {document.document_number}</p>
+                  <p className="text-slate-700">
+                    <span className="font-semibold">Issue Date:</span>{' '}
+                    {document.issue_date ? formatDate(document.issue_date) : '-'}
+                  </p>
+                  {document.due_date && (
+                    <p className="text-slate-700"><span className="font-semibold">Due Date:</span> {formatDate(document.due_date)}</p>
+                  )}
+                </div>
+              </div>
 
-          {document.terms && (
-            <div className="pt-6 border-t border-slate-200">
-              <h3 className="text-sm font-semibold text-slate-700 mb-2 uppercase">Terms & Conditions:</h3>
-              <p className="text-slate-600 text-sm whitespace-pre-line">{document.terms}</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-300">
+                <div className="p-4 border-b md:border-b-0 md:border-r border-slate-300">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-700 mb-2">Customer Details</h3>
+                  <div className="space-y-1 text-slate-800">
+                    <p className="font-semibold">{document.client_name || '-'}</p>
+                    {document.client_phone && <p className="text-slate-700">Phone: {document.client_phone}</p>}
+                    {document.client_email && <p className="text-slate-700">Email: {document.client_email}</p>}
+                    {document.client_address && <p className="text-slate-700 whitespace-pre-line">Address: {document.client_address}</p>}
+                    {document.client_emirate && <p className="text-slate-700">Emirate: {document.client_emirate}</p>}
+                    {document.client_trn && <p className="text-slate-700 font-semibold">Customer TRN: {document.client_trn}</p>}
+                  </div>
+                </div>
+                <div className="p-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-700 mb-2">Document Details</h3>
+                  <div className="space-y-1 text-slate-800">
+                    <p><span className="font-semibold">Receipt No:</span> {document.document_number}</p>
+                    <p>
+                      <span className="font-semibold">Issue Date:</span>{' '}
+                      {document.issue_date ? formatDate(document.issue_date) : '-'}
+                    </p>
+                    {document.due_date && (
+                      <p><span className="font-semibold">Due Date:</span> {formatDate(document.due_date)}</p>
+                    )}
+                    {document.payment_method && document.document_type !== 'quotation' && (
+                      <p><span className="font-semibold">Payment:</span> {getPaymentMethodLabel(document.payment_method)}</p>
+                    )}
+                    {companySettings?.company_trn && (
+                      <p className="font-semibold">VAT Reg No: {companySettings.company_trn}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4">
+                <table className="w-full border border-slate-300 text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="border border-slate-300 px-2 py-2 text-center w-12">Sl</th>
+                      <th className="border border-slate-300 px-2 py-2 text-left">Description</th>
+                      {!isLiveShowQuotation && (
+                        <th className="border border-slate-300 px-2 py-2 text-right">Weight</th>
+                      )}
+                      <th className="border border-slate-300 px-2 py-2 text-right">Qty</th>
+                      <th className="border border-slate-300 px-2 py-2 text-right">Unit Price</th>
+                      <th className="border border-slate-300 px-2 py-2 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item, idx) => {
+                      const weight = Number((item as any).weight ?? 0);
+                      return (
+                        <tr key={item.id} className="odd:bg-white even:bg-slate-50">
+                          <td className="border border-slate-300 px-2 py-2 text-center">{idx + 1}</td>
+                          <td className="border border-slate-300 px-2 py-2 text-slate-800">{item.description}</td>
+                          {!isLiveShowQuotation && (
+                            <td className="border border-slate-300 px-2 py-2 text-right text-slate-700">{weight}</td>
+                          )}
+                          <td className="border border-slate-300 px-2 py-2 text-right text-slate-700">{Number(item.quantity)}</td>
+                          <td className="border border-slate-300 px-2 py-2 text-right text-slate-700">{formatCurrency(Number(item.unit_price))}</td>
+                          <td className="border border-slate-300 px-2 py-2 text-right font-semibold text-slate-800">{formatCurrency(Number(item.amount))}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          )}
 
-          {/* Stamp bottom-right for dashboard quotations & receipts */}
-          {companySettings?.company_stamp_url && originLabel === 'Dashboard' && (document.document_type === 'quotation' || document.document_type === 'invoice') && (
-            <img
-              src={companySettings.company_stamp_url}
-              alt="Company Stamp"
-              className="absolute right-6 bottom-6 h-60 opacity-80"
-            />
-          )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+              {(document.payment_method || Number(document.delivery_fee) > 0 || deliveryProvider) && (
+                <div className="border border-slate-300 rounded-lg overflow-hidden">
+                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-300 font-semibold text-slate-800 uppercase text-xs tracking-wide">Details</div>
+                  <div className="p-4 space-y-2">
+                    {document.payment_method && document.document_type !== 'quotation' && (
+                      <p><span className="font-semibold">Payment:</span> {getPaymentMethodLabel(document.payment_method)}</p>
+                    )}
+                    {Number(document.payment_card_amount) > 0 && (
+                      <p><span className="font-semibold">Card:</span> {formatCurrency(Number(document.payment_card_amount))}</p>
+                    )}
+                    {Number(document.payment_cash_amount) > 0 && (
+                      <p><span className="font-semibold">Cash:</span> {formatCurrency(Number(document.payment_cash_amount))}</p>
+                    )}
+                    {(Number(document.delivery_fee) > 0 || deliveryProvider) && (
+                      <>
+                        {deliveryProvider?.name && <p><span className="font-semibold">Delivery:</span> {deliveryProvider.name}</p>}
+                        {deliveryProvider?.phone && <p><span className="font-semibold">Phone:</span> {deliveryProvider.phone}</p>}
+                        <p><span className="font-semibold">Delivery Fee (ref):</span> {formatCurrency(Number(document.delivery_fee || 0))}</p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="md:ml-auto w-full md:w-80 border border-slate-300 rounded-lg overflow-hidden">
+                <div className="px-4 py-3 bg-slate-50 border-b border-slate-300 font-semibold text-slate-800 uppercase text-xs tracking-wide">Summary</div>
+                <div className="divide-y divide-slate-200">
+                  <div className="flex justify-between px-4 py-2">
+                    <span>Subtotal</span>
+                    <span className="font-semibold">{formatCurrency(Number(document.subtotal))}</span>
+                  </div>
+                  <div className="flex justify-between px-4 py-2">
+                    <span>Tax ({companySettings?.tax_rate || 0}%)</span>
+                    <span className="font-semibold">{formatCurrency(Number(document.tax_amount))}</span>
+                  </div>
+                  {Number(document.discount_amount) > 0 && (
+                    <div className="flex justify-between px-4 py-2">
+                      <span>Discount</span>
+                      <span className="font-semibold">-{formatCurrency(Number(document.discount_amount))}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between px-4 py-3 bg-slate-50 font-bold text-slate-900 text-base">
+                    <span>Total</span>
+                    <span>{formatCurrency(Number(document.total))}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {document.notes && (
+              <div className="border border-slate-300 rounded-lg overflow-hidden">
+                <div className="px-4 py-2 bg-slate-50 border-b border-slate-300 font-semibold text-slate-800 uppercase text-xs tracking-wide">Notes</div>
+                <p className="p-4 text-slate-700 whitespace-pre-line">{document.notes}</p>
+              </div>
+            )}
+
+            {document.terms && (
+              <div className="border border-slate-300 rounded-lg overflow-hidden">
+                <div className="px-4 py-2 bg-slate-50 border-b border-slate-300 font-semibold text-slate-800 uppercase text-xs tracking-wide">Terms &amp; Conditions</div>
+                <p className="p-4 text-slate-700 whitespace-pre-line">{document.terms}</p>
+              </div>
+            )}
+
+            {companySettings?.company_stamp_url && originLabel === 'Dashboard' && (document.document_type === 'quotation' || document.document_type === 'invoice') && (
+              <img
+                src={companySettings.company_stamp_url}
+                alt="Company Stamp"
+                className="absolute right-6 bottom-6 h-60 opacity-80"
+              />
+            )}
+          </div>
         </div>
       </div>
       {isPOSInStore && (
