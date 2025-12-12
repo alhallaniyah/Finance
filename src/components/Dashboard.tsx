@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Document } from '../lib/supabaseHelpers';
 import { supabaseHelpers } from '../lib/supabaseHelpers';
 import { Search, FileText, FileSpreadsheet, Truck, Settings, Plus, Eye, CreditCard as Edit, Copy, Upload, Trash2, Filter, ShoppingCart, Shield, Timer, LogOut, Download, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
@@ -70,6 +70,7 @@ export default function Dashboard({
   const [totalCount, setTotalCount] = useState(0);
   const [stats, setStats] = useState({ quotations: 0, invoices: 0, deliveryNotes: 0, totalRevenue: 0 });
   const [statsLoading, setStatsLoading] = useState(false);
+  const exportCountRef = useRef(1);
 
   useEffect(() => {
     (async () => {
@@ -193,12 +194,18 @@ export default function Dashboard({
         Date: doc.issue_date ? formatDate(doc.issue_date) : '',
         Status: doc.status || '',
         Origin: doc.origin || 'dashboard',
-        Total: Number(doc.total || 0),
+        'Subtotal (before VAT)': Number(doc.subtotal || 0),
+        'VAT Amount': Number(doc.tax_amount || 0),
+        'Total (with VAT)': Number(doc.total || 0),
       }));
       const sheet = XLSX.utils.json_to_sheet(rows);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, sheet, 'Documents');
-      XLSX.writeFile(wb, 'documents_export.xlsx');
+      const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const count = exportCountRef.current;
+      const fileName = `export_${today}_${String(count).padStart(2, '0')}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      exportCountRef.current = count + 1;
     } catch (error) {
       console.error('Error exporting documents:', error);
       alert('Failed to export documents. Please try again.');
