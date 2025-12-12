@@ -193,7 +193,9 @@ export default function Dashboard({
         Date: doc.issue_date ? formatDate(doc.issue_date) : '',
         Status: doc.status || '',
         Origin: doc.origin || 'dashboard',
-        Total: Number(doc.total || 0),
+        'Subtotal (before VAT)': Number(doc.subtotal || 0),
+        'VAT Amount': Number(doc.tax_amount || 0),
+        'Total (with VAT)': Number(doc.total || 0),
       }));
       const sheet = XLSX.utils.json_to_sheet(rows);
       const wb = XLSX.utils.book_new();
