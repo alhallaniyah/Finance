@@ -23,7 +23,7 @@ const originMeta = {
 } as const;
 
 function getDocumentTypeLabel(type: string): string {
-  return type === 'invoice' ? 'receipt' : type.replace('_', ' ');
+  return type === 'invoice' ? 'tax receipt' : type.replace('_', ' ');
 }
 
 type DashboardProps = {
@@ -273,7 +273,7 @@ export default function Dashboard({
           <div className="flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-2 mb-4">
             <div>
               <h1 className="text-lg md:text-2xl font-bold text-slate-800">Document Manager</h1>
-              <p className="text-xs md:text-sm text-slate-600 mt-0.5">Manage your quotations, receipts, and delivery notes</p>
+              <p className="text-xs md:text-sm text-slate-600 mt-0.5">Manage your quotations, tax receipts, and delivery notes</p>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
               <button

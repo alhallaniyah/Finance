@@ -827,6 +827,14 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
       return true;
     }
 
+    const invalidWeightItem = cart.find(
+      (i) => i.sell_by === 'weight' && (!Number.isFinite(i.weight) || i.weight! <= 0)
+    );
+    if (invalidWeightItem) {
+      setError('Weight must be greater than 0 for items sold by weight.');
+      return false;
+    }
+
     if (mode === 'in_store' && paymentMethod === 'both' && total > 0) {
       const clamped = Math.max(0, Math.min(cardPaymentAmount, total));
       if (clamped <= 0 || clamped >= total) {

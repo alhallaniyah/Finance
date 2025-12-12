@@ -52,7 +52,7 @@ const deliveryPaymentOptions = [
 ];
 
 function documentTypeLabel(type: 'quotation' | 'invoice' | 'delivery_note'): string {
-  return type === 'invoice' ? 'receipt' : type.replace('_', ' ');
+  return type === 'invoice' ? 'tax receipt' : type.replace('_', ' ');
 }
 
 export default function DocumentForm({
