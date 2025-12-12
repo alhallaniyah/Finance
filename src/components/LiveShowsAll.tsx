@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { supabaseHelpers, LiveShow } from '../lib/supabaseHelpers';
+import { supabaseHelpers, LiveShow, LiveShowQuotation, LiveShowPayment } from '../lib/supabaseHelpers';
+import { generateDocumentNumber } from '../lib/documentHelpers';
 
 type Props = {
   onBack: () => void;
@@ -22,6 +23,7 @@ export default function LiveShowsAll({ onBack, onOpenDetail, onReceiptSaved }: P
   const [paymentDate, setPaymentDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentType, setPaymentType] = useState<'advance' | 'full'>('advance');
 
   async function load() {
     setLoading(true);
@@ -39,6 +41,65 @@ export default function LiveShowsAll({ onBack, onOpenDetail, onReceiptSaved }: P
 
   useEffect(() => { load(); }, [page, pageSize]);
 
+  function sumPayments(list: LiveShowPayment[], type?: 'advance' | 'full') {
+    const arr = type ? list.filter((p) => p.payment_type === type) : list;
+    return arr.reduce((sum, p) => sum + Math.max(0, Number(p.amount || 0)), 0);
+  }
+
+  async function createFullPaymentReceipt(show: LiveShow, amount: number, method: 'cash' | 'transfer', quotation: LiveShowQuotation | null, issueDate: string) {
+    const docNumber = await generateDocumentNumber('invoice');
+    const client = await supabaseHelpers.getClientById(show.client_id);
+    const payments = await supabaseHelpers.getLiveShowPayments(show.id).catch(() => [] as LiveShowPayment[]);
+    const estimated = Math.max(0, Number(quotation?.total_estimated || 0));
+    const advancePaid = sumPayments(payments, 'advance');
+    const fullPaid = sumPayments(payments, 'full');
+    const balanceBefore = Math.max(0, estimated - (advancePaid + fullPaid - amount));
+    const balanceAfter = Math.max(0, estimated - (advancePaid + fullPaid));
+
+    const receiptDoc = await supabaseHelpers.createDocument({
+      document_type: 'invoice',
+      document_number: docNumber,
+      client_id: client?.id || show.client_id,
+      client_name: client?.name || '',
+      client_email: client?.email || '',
+      client_phone: client?.phone || '',
+      client_address: client?.address || '',
+      client_trn: (client as any)?.trn || '',
+      client_emirate: client?.emirate || '',
+      issue_date: issueDate || new Date().toISOString().split('T')[0],
+      subtotal: amount,
+      tax_amount: 0,
+      discount_amount: 0,
+      total: amount,
+      notes: `Final Receipt for Live Show ${show.show_number}.\nEstimated: ${estimated.toFixed(2)}\nPaid this receipt: ${amount.toFixed(2)}\nBalance before: ${balanceBefore.toFixed(2)}\nBalance after: ${balanceAfter.toFixed(2)}`,
+      terms: '',
+      status: 'paid',
+      origin: 'dashboard',
+      payment_method: method,
+      payment_card_amount: 0,
+      payment_cash_amount: method === 'cash' ? amount : 0,
+      delivery_fee: 0,
+      delivery_provider_id: null,
+    });
+
+    try {
+      await supabaseHelpers.createDocumentItem({
+        document_id: receiptDoc.id,
+        description: `Full Payment (${show.show_number})`,
+        quantity: 1,
+        weight: 0,
+        sell_by: 'unit',
+        item_id: null,
+        unit_price: amount,
+        amount,
+      });
+    } catch (e) {
+      console.warn('Failed to attach payment item to receipt', e);
+    }
+
+    return receiptDoc;
+  }
+
   const maxPage = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
 
   function startEdit(s: LiveShow) {
@@ -55,15 +116,31 @@ export default function LiveShowsAll({ onBack, onOpenDetail, onReceiptSaved }: P
     });
   }
 
-  function openAdvancePayment(s: LiveShow) {
+  async function openPayment(s: LiveShow, type?: 'advance' | 'full') {
+    const resolvedType: 'advance' | 'full' = type || (s.status === 'advanced_paid' ? 'full' : 'advance');
     setPaymentShow(s);
+    setPaymentType(resolvedType);
     setPaymentAmount(0);
     setPaymentMethod('cash');
     setPaymentDate(new Date().toISOString().split('T')[0]);
     setPaymentError(null);
+
+    if (resolvedType === 'full') {
+      try {
+        const [qs, ps] = await Promise.all([
+          supabaseHelpers.getLiveShowQuotations(s.id),
+          supabaseHelpers.getLiveShowPayments(s.id),
+        ]);
+        const estimated = Math.max(0, Number(qs[0]?.total_estimated || 0));
+        const balance = Math.max(0, estimated - (sumPayments(ps, 'advance') + sumPayments(ps, 'full')));
+        setPaymentAmount(balance);
+      } catch (e) {
+        console.warn('Failed to preload full payment amount', e);
+      }
+    }
   }
 
-  async function submitAdvancePayment() {
+  async function submitPayment() {
     if (!paymentShow) return;
     const amt = Math.max(0, Number(paymentAmount || 0));
     if (amt <= 0) {
@@ -76,7 +153,7 @@ export default function LiveShowsAll({ onBack, onOpenDetail, onReceiptSaved }: P
       const qs = await supabaseHelpers.getLiveShowQuotations(paymentShow.id);
       const q = qs.length > 0 ? qs[0] : null;
       const payment = await supabaseHelpers.recordLiveShowPayment(paymentShow.id, {
-        type: 'advance',
+        type: paymentType,
         amount: amt,
         method: paymentMethod,
         quotation_id: q?.id || null,
@@ -87,11 +164,13 @@ export default function LiveShowsAll({ onBack, onOpenDetail, onReceiptSaved }: P
       try { await supabaseHelpers.updateLiveShowPaymentDate(payment.id, iso); } catch {}
 
       // Create the printable receipt with the selected payment date
-      const doc = await supabaseHelpers.createAdvanceReceiptForLiveShow(paymentShow.id, {
-        amount: amt,
-        method: paymentMethod,
-        issueDate: paymentDate,
-      });
+      const doc = paymentType === 'advance'
+        ? await supabaseHelpers.createAdvanceReceiptForLiveShow(paymentShow.id, {
+            amount: amt,
+            method: paymentMethod,
+            issueDate: paymentDate,
+          })
+        : await createFullPaymentReceipt(paymentShow, amt, paymentMethod, q, paymentDate);
 
       // Trigger Save & Print flow in parent
       if (onReceiptSaved) onReceiptSaved(doc.id, { print: true });
@@ -192,7 +271,18 @@ export default function LiveShowsAll({ onBack, onOpenDetail, onReceiptSaved }: P
                     <div className="inline-flex items-center gap-2">
                       <button onClick={() => startEdit(s)} className="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50">Edit</button>
                       <button onClick={() => deleteShow(s.id)} className="text-xs px-2 py-1 border border-red-200 text-red-700 rounded hover:bg-red-50">Delete</button>
-                      <button onClick={() => openAdvancePayment(s)} className="text-xs px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">Record Advance</button>
+                      {s.status !== 'fully_paid' && s.status !== 'cancelled' && (
+                        <button
+                          onClick={() => openPayment(s)}
+                          className={`text-xs px-3 py-1 text-white rounded hover:brightness-95 ${
+                            s.status === 'advanced_paid' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'
+                          }`}
+                        >
+                          {s.status === 'advanced_paid' ? 'Record Full Payment' : 'Record Advance'}
+                        </button>
+                      )}
+                      {s.status === 'fully_paid' && <span className="text-xs text-emerald-700">Completed</span>}
+                      {s.status === 'cancelled' && <span className="text-xs text-slate-500">Cancelled</span>}
                     </div>
                   </td>
                 </tr>
@@ -262,12 +352,14 @@ export default function LiveShowsAll({ onBack, onOpenDetail, onReceiptSaved }: P
         </div>
       )}
 
-      {/* Record Advance Payment Modal */}
+      {/* Record Payment Modal */}
       {paymentShow && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-white w-[90vw] max-w-md rounded-xl shadow-lg border border-slate-200 p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold">Record Advance Payment</h3>
+              <h3 className="text-lg font-semibold">
+                {paymentType === 'advance' ? 'Record Advance Payment' : 'Record Full Payment'}
+              </h3>
               <button onClick={() => setPaymentShow(null)} className="p-2 hover:bg-slate-50 rounded-lg">✕</button>
             </div>
             <div className="text-sm text-slate-700 mb-3">
@@ -295,7 +387,9 @@ export default function LiveShowsAll({ onBack, onOpenDetail, onReceiptSaved }: P
             </div>
             <div className="flex items-center justify-end gap-2 mt-4">
               <button onClick={() => setPaymentShow(null)} className="px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-              <button onClick={submitAdvancePayment} disabled={savingPayment} className="px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">Save & Print Receipt</button>
+              <button onClick={submitPayment} disabled={savingPayment} className="px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+                {paymentType === 'advance' ? 'Save Advance Payment' : 'Save Full Payment'}
+              </button>
             </div>
           </div>
         </div>
