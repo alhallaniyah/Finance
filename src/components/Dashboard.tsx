@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Document } from '../lib/supabaseHelpers';
 import { supabaseHelpers } from '../lib/supabaseHelpers';
-import { Search, FileText, FileSpreadsheet, Truck, Settings, Plus, Eye, CreditCard as Edit, Copy, Upload, Trash2, Filter, ShoppingCart, Shield, Timer, LogOut, Download, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { Search, FileText, FileSpreadsheet, Truck, Settings, Plus, Eye, CreditCard as Edit, Copy, Upload, Trash2, Filter, ShoppingCart, Shield, Timer, LogOut, Download, ArrowUp, ArrowDown, ArrowUpDown, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { formatCurrency, formatDate } from '../lib/documentHelpers';
 import ExcelImport from './ExcelImport';
@@ -71,6 +71,8 @@ export default function Dashboard({
   const [stats, setStats] = useState({ quotations: 0, invoices: 0, deliveryNotes: 0, totalRevenue: 0 });
   const [statsLoading, setStatsLoading] = useState(false);
   const exportCountRef = useRef(1);
+  const [exportMode, setExportMode] = useState<'sales' | 'products'>('sales');
+  const [showExportModal, setShowExportModal] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -185,32 +187,83 @@ export default function Dashboard({
         sortColumn,
         sortDirection,
       });
-      const rows = docs.map((doc) => ({
-        Document: doc.document_number,
-        Type: getDocumentTypeLabel(doc.document_type),
-        Client: doc.client_name || '',
-        Email: doc.client_email || '',
-        Phone: doc.client_phone || '',
-        Date: doc.issue_date ? formatDate(doc.issue_date) : '',
-        Status: doc.status || '',
-        Origin: doc.origin || 'dashboard',
-        'Subtotal (before VAT)': Number(doc.subtotal || 0),
-        'VAT Amount': Number(doc.tax_amount || 0),
-        'Total (with VAT)': Number(doc.total || 0),
-      }));
-      const sheet = XLSX.utils.json_to_sheet(rows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, sheet, 'Documents');
+      let wb: XLSX.WorkBook;
       const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
       const count = exportCountRef.current;
-      const fileName = `export_${today}_${String(count).padStart(2, '0')}.xlsx`;
-      XLSX.writeFile(wb, fileName);
+      const suffix = String(count).padStart(2, '0');
+
+      if (exportMode === 'sales') {
+        const rows = docs.map((doc) => ({
+          Document: doc.document_number,
+          Type: getDocumentTypeLabel(doc.document_type),
+          Client: doc.client_name || '',
+          Email: doc.client_email || '',
+          Phone: doc.client_phone || '',
+          Date: doc.issue_date ? formatDate(doc.issue_date) : '',
+          Status: doc.status || '',
+          Origin: doc.origin || 'dashboard',
+          'Subtotal (before VAT)': Number(doc.subtotal || 0),
+          'VAT Amount': Number(doc.tax_amount || 0),
+          'Total (with VAT)': Number(doc.total || 0),
+        }));
+        const sheet = XLSX.utils.json_to_sheet(rows);
+        wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, sheet, 'Documents');
+        const fileName = `export_${today}_${suffix}.xlsx`;
+        XLSX.writeFile(wb, fileName);
+      } else {
+        const docItems = await Promise.all(
+          docs.map(async (doc) => {
+            const items = await supabaseHelpers.getDocumentItems(doc.id);
+            return { doc, items };
+          })
+        );
+        const productMap = new Map<
+          string,
+          { date: string; name: string; sellBy: string; quantity: number; weight: number; amount: number }
+        >();
+
+        for (const { doc, items } of docItems) {
+          const date = (doc.issue_date || '').split('T')[0] || '';
+          for (const item of items) {
+            const sellBy = (item as any).sell_by === 'weight' ? 'weight' : 'unit';
+            const qty = Number(item.quantity || 0);
+            const weight = Number((item as any).weight ?? 0);
+            const amount = Number(item.amount || 0);
+            const key = `${date}__${item.description || ''}__${sellBy}`;
+            if (!productMap.has(key)) {
+              productMap.set(key, { date, name: item.description || '-', sellBy, quantity: 0, weight: 0, amount: 0 });
+            }
+            const acc = productMap.get(key)!;
+            acc.quantity += qty;
+            acc.weight += weight;
+            acc.amount += amount;
+          }
+        }
+
+        const rows = Array.from(productMap.values()).map((row) => ({
+          Date: row.date ? formatDate(row.date) : '',
+          Item: row.name,
+          'Sell By': row.sellBy,
+          Quantity: Number(row.quantity.toFixed(2)),
+          Weight: Number(row.weight.toFixed(2)),
+          Amount: Number(row.amount.toFixed(2)),
+        }));
+
+        const sheet = XLSX.utils.json_to_sheet(rows);
+        wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, sheet, 'Products');
+        const fileName = `export_products_${today}_${suffix}.xlsx`;
+        XLSX.writeFile(wb, fileName);
+      }
+
       exportCountRef.current = count + 1;
     } catch (error) {
       console.error('Error exporting documents:', error);
       alert('Failed to export documents. Please try again.');
     } finally {
       setExporting(false);
+      setShowExportModal(false);
     }
   }
 
@@ -427,20 +480,19 @@ export default function Dashboard({
             )}
 
             <button
+              onClick={() => setShowExportModal(true)}
+              className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-white text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-all shadow-sm"
+            >
+              <Download className="w-4 h-4 sm:w-5 sm:h-5" />
+              Export Excel
+            </button>
+
+            <button
               onClick={() => setShowImport(true)}
               className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-all shadow-sm"
             >
               <Upload className="w-4 h-4 sm:w-5 sm:h-5" />
               Import Excel
-            </button>
-
-            <button
-              onClick={handleExport}
-              disabled={exporting}
-              className="flex items-center gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-white text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-all shadow-sm disabled:opacity-50"
-            >
-              <Download className="w-4 h-4 sm:w-5 sm:h-5" />
-              {exporting ? 'Exporting…' : 'Export Excel'}
             </button>
 
             <div className="flex gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
@@ -775,6 +827,48 @@ export default function Dashboard({
           </div>
         )}
       </div>
+
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white w-[90vw] max-w-md rounded-xl shadow-lg border border-slate-200 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-800">Export Options</h3>
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="text-slate-500 hover:text-slate-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">Export type</label>
+              <select
+                value={exportMode}
+                onChange={(e) => setExportMode(e.target.value as 'sales' | 'products')}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+              >
+                <option value="sales">Sales (documents)</option>
+                <option value="products">Products (daily totals)</option>
+              </select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
+              >
+                {exporting ? 'Exporting…' : 'Export'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showImport && (
         <ExcelImport
