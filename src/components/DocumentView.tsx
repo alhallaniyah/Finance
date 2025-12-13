@@ -63,7 +63,8 @@ export default function DocumentView({
       const unitPrice = Number(item.unit_price) || 0;
       const amount = Number(item.amount) || 0;
       const name = `${item.description}${sellBy === 'weight' && weight > 0 ? ` (${weight} KG)` : ''}`;
-      const quantity = sellBy === 'weight' && weight > 0 ? weight : qty;
+      // For POS receipts, show the entered quantity even for weight-based items; weight is already in the name
+      const quantity = qty > 0 ? qty : weight;
       return {
         name,
         quantity,
@@ -79,6 +80,7 @@ export default function DocumentView({
       companyName: companySettings?.company_name || 'Company Name',
       companyAddress: companySettings?.company_address || '',
       companyTrn: companySettings?.company_trn || '',
+      taxRate: Number(companySettings?.tax_rate || 0),
       companyPhone: '',
       receiptNo: document.document_number,
       date: document.issue_date ? formatDate(document.issue_date) : '-',

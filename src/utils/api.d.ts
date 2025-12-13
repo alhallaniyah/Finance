@@ -10,6 +10,7 @@ export type ReceiptPayload = {
   companyAddress?: string;
   companyPhone?: string;
   companyTrn?: string;
+  taxRate?: number;
   receiptNo: string;
   date: string;
   paymentMethod?: string;

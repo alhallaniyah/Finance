@@ -21,6 +21,19 @@ function formatAmount(val) {
   return num.toFixed(2);
 }
 
+function formatColumns(values, width = RECEIPT_WIDTH) {
+  const cols = values.length;
+  if (cols === 0) return '';
+  const colWidth = Math.floor(width / cols);
+  return values
+    .map((val, idx) => {
+      const text = String(val || '');
+      if (idx === cols - 1) return text.padStart(colWidth);
+      return text.padEnd(colWidth);
+    })
+    .join('');
+}
+
 function centerText(text) {
   if (!text) return '';
   if (text.length >= RECEIPT_WIDTH) return text;
@@ -84,7 +97,7 @@ function buildReceiptLayout(payload) {
   lines.push(centerText(payload.companyName || 'Company'));
   if (payload.companyAddress) lines.push(centerText(payload.companyAddress));
   const companyPhone = payload.companyPhone || payload.companyTel || payload.companyTelephone || payload.companyPhoneNumber;
-  if (companyPhone) lines.push(centerText(companyPhone));
+  if (companyPhone) lines.push(centerText(`TEL: ${companyPhone}`));
   if (payload.companyTrn) lines.push(centerText(`TRN: ${payload.companyTrn}`));
   lines.push(divider());
   lines.push(kvLine('Receipt No', payload.receiptNo || '-'));
@@ -95,11 +108,30 @@ function buildReceiptLayout(payload) {
 
   (payload.items || []).forEach((item) => {
     const name = item.name || '';
-    const qty = Number(item.quantity) || 0;
+    const rawQty = Number(item.quantity) || 0;
     const unit = formatAmount(item.unitPrice || 0);
-    const total = formatAmount(item.total || qty * (item.unitPrice || 0));
+    const total = formatAmount(item.total || rawQty * (item.unitPrice || 0));
+    const subtotal = Number(item.total || rawQty * (item.unitPrice || 0));
+    const vatAlloc =
+      typeof payload.subtotal === 'number' && payload.subtotal > 0
+        ? (Number(payload.vat || 0) * (subtotal / payload.subtotal))
+        : 0;
+    const totalWithVat = subtotal + vatAlloc;
     lines.push(name.length > RECEIPT_WIDTH ? name.slice(0, RECEIPT_WIDTH) : name);
-    lines.push(kvLine(` ${qty} x ${unit}`, `${total}`));
+    const midVal =
+      vatAlloc > 0
+        ? `${formatAmount(subtotal)} ${formatAmount(vatAlloc)}`
+        : formatAmount(subtotal);
+    lines.push(
+      formatColumns(
+        [
+          `${rawQty} pcs`, // left (quantity with pcs)
+          midVal, // middle (before VAT with VAT shown)
+          formatAmount(totalWithVat), // right
+        ],
+        RECEIPT_WIDTH
+      )
+    );
   });
 
   lines.push(divider());
