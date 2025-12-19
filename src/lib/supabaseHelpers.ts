@@ -305,6 +305,7 @@ export type CompanySettings = {
   id: string;
   company_name?: string;
   company_address?: string;
+  company_phone?: string;
   company_trn?: string;
   company_logo_url?: string;
   company_stamp_url?: string;

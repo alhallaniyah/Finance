@@ -10,6 +10,7 @@ export default function Settings({ onBack }: SettingsProps) {
   const [loading, setLoading] = useState(false);
   const [companyName, setCompanyName] = useState('');
   const [companyAddress, setCompanyAddress] = useState('');
+  const [companyPhone, setCompanyPhone] = useState('');
   const [companyTrn, setCompanyTrn] = useState('');
   const [companyLogoUrl, setCompanyLogoUrl] = useState('');
   const [companyStampUrl, setCompanyStampUrl] = useState('');
@@ -28,6 +29,7 @@ export default function Settings({ onBack }: SettingsProps) {
       setSettingsId(data.id);
       setCompanyName(data.company_name || '');
       setCompanyAddress(data.company_address || '');
+      setCompanyPhone((data as any).company_phone || '');
       setCompanyTrn(data.company_trn || '');
       setCompanyLogoUrl(data.company_logo_url || '');
       setCompanyStampUrl((data as any).company_stamp_url || '');
@@ -74,6 +76,7 @@ export default function Settings({ onBack }: SettingsProps) {
       const settingsData = {
         company_name: companyName,
         company_address: companyAddress,
+        company_phone: companyPhone,
         company_trn: companyTrn,
         company_logo_url: companyLogoUrl,
         company_stamp_url: companyStampUrl,
@@ -130,6 +133,17 @@ export default function Settings({ onBack }: SettingsProps) {
                 value={companyAddress}
                 onChange={(e) => setCompanyAddress(e.target.value)}
                 rows={3}
+                className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Company Phone</label>
+              <input
+                type="tel"
+                value={companyPhone}
+                onChange={(e) => setCompanyPhone(e.target.value)}
+                placeholder="+971 50 123 4567"
                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
