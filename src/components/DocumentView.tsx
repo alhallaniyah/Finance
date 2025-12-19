@@ -79,9 +79,9 @@ export default function DocumentView({
     return {
       companyName: companySettings?.company_name || 'Company Name',
       companyAddress: companySettings?.company_address || '',
+      companyPhone: companySettings?.company_phone || '',
       companyTrn: companySettings?.company_trn || '',
       taxRate: Number(companySettings?.tax_rate || 0),
-      companyPhone: '',
       receiptNo: document.document_number,
       date: document.issue_date ? formatDate(document.issue_date) : '-',
       ...(document.document_type !== 'quotation' ? { paymentMethod: paymentLabel } : {}),
