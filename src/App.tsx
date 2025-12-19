@@ -17,9 +17,11 @@ import LiveShows from './components/LiveShows';
 import LiveShowsAll from './components/LiveShowsAll';
 import LiveShowDetail from './components/LiveShowDetail';
 import CalendarView from './components/CalendarView';
+import Expenses from './components/Expenses';
+import Vendors from './components/Vendors';
 import { Menu } from 'lucide-react';
 
-type View = 'dashboard' | 'create' | 'edit' | 'view' | 'settings' | 'pos' | 'admin' | 'kitchen' | 'kitchen_form' | 'kitchen_run' | 'kitchen_validate' | 'kitchen_admin' | 'live_shows' | 'live_shows_all' | 'live_show_detail' | 'calendar';
+type View = 'dashboard' | 'create' | 'edit' | 'view' | 'settings' | 'pos' | 'admin' | 'kitchen' | 'kitchen_form' | 'kitchen_run' | 'kitchen_validate' | 'kitchen_admin' | 'live_shows' | 'live_shows_all' | 'live_show_detail' | 'calendar' | 'expenses' | 'vendors';
 
 function App() {
   const [currentView, setCurrentView] = useState<View>(() => {
@@ -345,6 +347,14 @@ function App() {
 
       {currentView === 'calendar' && (
         <CalendarView />
+      )}
+
+      {currentView === 'expenses' && (
+        <Expenses onBack={handleBackToDashboard} />
+      )}
+
+      {currentView === 'vendors' && (
+        <Vendors onBack={handleBackToDashboard} />
       )}
         </div>
       </div>
