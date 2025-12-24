@@ -321,6 +321,7 @@ export type Client = {
   user_id: string;
 };
 
+export type DocumentStatus = 'draft' | 'sent' | 'paid' | 'cancelled';
 export type Document = {
   id: string;
   document_type: string;
@@ -340,7 +341,7 @@ export type Document = {
   total?: number;
   notes?: string;
   terms?: string;
-  status?: string;
+  status?: DocumentStatus;
   origin?: 'dashboard' | 'pos_in_store' | 'pos_delivery';
   payment_method?: string;
   payment_card_amount?: number;
@@ -355,7 +356,7 @@ export type Document = {
 export type DocumentPageFilters = {
   searchTerm?: string;
   filterType?: 'quotation' | 'invoice' | 'delivery_note' | 'all';
-  filterStatus?: 'draft' | 'sent' | 'paid' | 'cancelled' | 'all';
+  filterStatus?: DocumentStatus | 'all';
   filterOrigin?: 'dashboard' | 'pos_in_store' | 'pos_delivery' | 'all';
   filterDateFrom?: string;
   filterDateTo?: string;
