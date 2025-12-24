@@ -26,6 +26,8 @@ export default function Vendors({ onBack }: VendorsProps) {
   const [country, setCountry] = useState('');
   const [defaultVatRate, setDefaultVatRate] = useState('');
   const [notes, setNotes] = useState('');
+  const [phone, setPhone] = useState('');
+  const [managerPhone, setManagerPhone] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -53,6 +55,8 @@ export default function Vendors({ onBack }: VendorsProps) {
     setCountry('');
     setDefaultVatRate('');
     setNotes('');
+    setPhone('');
+    setManagerPhone('');
   }
 
   async function handleSubmit() {
@@ -66,6 +70,8 @@ export default function Vendors({ onBack }: VendorsProps) {
       const payload = {
         name: name.trim(),
         type,
+        phone: phone.trim() || null,
+        manager_phone: managerPhone.trim() || null,
         vat_trn: vatTrn.trim() || null,
         country: country.trim() || null,
         default_vat_rate: defaultVatRate ? Number(defaultVatRate) : null,
@@ -100,7 +106,13 @@ export default function Vendors({ onBack }: VendorsProps) {
   const filtered = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     if (!term) return vendors;
-    return vendors.filter((v) => (v.name || '').toLowerCase().includes(term) || (v.vat_trn || '').toLowerCase().includes(term));
+    return vendors.filter(
+      (v) =>
+        (v.name || '').toLowerCase().includes(term) ||
+        (v.vat_trn || '').toLowerCase().includes(term) ||
+        (v.phone || '').toLowerCase().includes(term) ||
+        (v.manager_phone || '').toLowerCase().includes(term)
+    );
   }, [vendors, searchTerm]);
 
   return (
@@ -169,6 +181,24 @@ export default function Vendors({ onBack }: VendorsProps) {
               />
             </div>
             <div>
+              <label className="block text-xs text-slate-600 mb-1">Phone</label>
+              <input
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+9715..."
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-600 mb-1">Manager Phone</label>
+              <input
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                value={managerPhone}
+                onChange={(e) => setManagerPhone(e.target.value)}
+                placeholder="+9715..."
+              />
+            </div>
+            <div>
               <label className="block text-xs text-slate-600 mb-1">Country</label>
               <input
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -226,9 +256,10 @@ export default function Vendors({ onBack }: VendorsProps) {
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Name</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">VAT TRN</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">VAT %</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">VAT TRN</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Phone</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">VAT %</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Status</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase">Actions</th>
                   </tr>
                 </thead>
@@ -241,6 +272,10 @@ export default function Vendors({ onBack }: VendorsProps) {
                       </td>
                       <td className="px-4 py-3 text-slate-700 capitalize">{v.type || 'supplier'}</td>
                       <td className="px-4 py-3 text-slate-700">{v.vat_trn || '—'}</td>
+                      <td className="px-4 py-3 text-slate-700">
+                        <div>{v.phone || '—'}</div>
+                        <div className="text-xs text-slate-500">Mgr: {v.manager_phone || '—'}</div>
+                      </td>
                       <td className="px-4 py-3 text-slate-700">{typeof v.default_vat_rate === 'number' ? Number(v.default_vat_rate).toFixed(2) : '—'}</td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 rounded-full text-xs ${v.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
@@ -259,6 +294,8 @@ export default function Vendors({ onBack }: VendorsProps) {
                               setCountry(v.country || '');
                               setDefaultVatRate(v.default_vat_rate !== null && v.default_vat_rate !== undefined ? String(v.default_vat_rate) : '');
                               setNotes(v.notes || '');
+                              setPhone(v.phone || '');
+                              setManagerPhone(v.manager_phone || '');
                             }}
                             title="Edit"
                           >
@@ -277,7 +314,7 @@ export default function Vendors({ onBack }: VendorsProps) {
                   ))}
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-6 text-center text-slate-600">
+                      <td colSpan={7} className="px-4 py-6 text-center text-slate-600">
                         No vendors yet. Add your first vendor above.
                       </td>
                     </tr>
