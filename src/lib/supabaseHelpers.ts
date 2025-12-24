@@ -9,7 +9,7 @@ import {
 } from './cacheUtils';
 
 const DOCUMENTS_CACHE_TTL_MS = 60_000; // 60 seconds
-const DOCUMENT_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
+const DOCUMENT_PAGES_CACHE_TTL_MS = 0; // disabled for dashboard freshness
 const KITCHEN_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
 const LIVE_SHOW_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
 const LIST_CACHE_TTL_MS = 60_000; // 60 seconds
@@ -28,7 +28,7 @@ const expensePagesCache = createKeyedCache<{ data: Expense[]; total: number }>(L
 
 // LocalStorage TTLs (longer-lived than in-memory)
 const LOCAL_LIST_CACHE_TTL_MS = 15 * 60_000; // 15 minutes
-const LOCAL_PAGE_CACHE_TTL_MS = 15 * 60_000; // 15 minutes
+const LOCAL_PAGE_CACHE_TTL_MS = 0; // disable page local caching for freshness
 const LOCAL_CLIENTS_CACHE_TTL_MS = 60 * 60_000; // 60 minutes (frequently used in POS)
 
 function nowMs() {
@@ -52,11 +52,11 @@ function documentPageCacheKey(page: number, pageSize: number, filtersKey: string
 }
 
 function getDocumentPageCache(key: string) {
-  return documentPagesCache.get(key);
+  return DOCUMENT_PAGES_CACHE_TTL_MS === 0 ? null : documentPagesCache.get(key);
 }
 
 function setDocumentPageCache(key: string, payload: { data: Document[]; total: number }) {
-  documentPagesCache.set(key, payload);
+  if (DOCUMENT_PAGES_CACHE_TTL_MS !== 0) documentPagesCache.set(key, payload);
 }
 
 function invalidateDocumentPagesCache() {
@@ -1466,17 +1466,6 @@ export const supabaseHelpers = {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
     const normalized = normalizeExpenseFilters(filters);
-    const filtersKey = JSON.stringify(normalized);
-    const key = expensePageCacheKey(page, pageSize, filtersKey);
-    const cached = getExpensePageCache(key);
-    if (cached) return cached;
-    const lsKey = `cache:expenses:page:${companyId}:${key}`;
-    const lsCached = readLocalCache<Expense[]>(lsKey);
-    if (lsCached && nowMs() - lsCached.timestamp < LOCAL_PAGE_CACHE_TTL_MS) {
-      const payload = { data: (lsCached.data || []) as Expense[], total: Number((lsCached as any).total) || 0 };
-      setExpensePageCache(key, payload);
-      return payload;
-    }
     let query = supabase
       .from('expenses')
       .select('*', { count: 'planned' })
@@ -1488,8 +1477,6 @@ export const supabaseHelpers = {
     const { data, error, count } = await query;
     if (error) throw error;
     const payload = { data: (data || []) as Expense[], total: count || 0 };
-    setExpensePageCache(key, payload);
-    writeLocalCache(lsKey, payload);
     return payload;
   },
 
@@ -2341,17 +2328,6 @@ export const supabaseHelpers = {
     return (data || []) as Document[];
   },
 
-  // Cached variant for dashboard/table views to avoid repeated DB loads
-  async getDocumentsCached(options?: { forceRefresh?: boolean }): Promise<Document[]> {
-    const cached = getDocumentsCache();
-    if (!options?.forceRefresh && cached) {
-      return cached;
-    }
-    const docs = await supabaseHelpers.getDocuments();
-    setDocumentsCache(docs);
-    return docs;
-  },
-
   // Paged listing: server-side filtering + pagination (Clean -> Filter -> Transform)
   async getDocumentsPage(
     page: number,
@@ -2363,21 +2339,6 @@ export const supabaseHelpers = {
     const start = (safePage - 1) * safePageSize;
     const end = start + safePageSize - 1;
     const normalizedFilters = normalizeDocumentFilters(filters);
-    const filtersKey = JSON.stringify(normalizedFilters);
-    const key = documentPageCacheKey(safePage, safePageSize, filtersKey);
-    const memoryCached = getDocumentPageCache(key);
-    if (memoryCached) {
-      return memoryCached;
-    }
-    const { data: authData } = await supabase.auth.getUser();
-    const userId = authData?.user?.id || 'anon';
-    const lsKey = `cache:documents:page:${userId}:${key}`;
-    const lsCached = readLocalCache<Document[]>(lsKey);
-    if (lsCached && nowMs() - lsCached.timestamp < LOCAL_PAGE_CACHE_TTL_MS) {
-      const payload = { data: (lsCached.data || []) as Document[], total: Number((lsCached as any).total) || 0 };
-      setDocumentPageCache(key, payload);
-      return payload;
-    }
     // Clean -> Filter -> Transform pattern keeps the query predictable and index-friendly
     const query = supabase
       .from('documents')
@@ -2389,10 +2350,7 @@ export const supabaseHelpers = {
     const { data, error, count } = await query;
 
     if (error) throw error;
-    const payload = { data: (data || []) as Document[], total: count ?? 0 };
-    setDocumentPageCache(key, payload);
-    writeLocalCache(lsKey, payload);
-    return payload;
+    return { data: (data || []) as Document[], total: count ?? 0 };
   },
 
   async getDocument(id: string): Promise<Document | null> {
