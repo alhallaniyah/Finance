@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { supabaseHelpers, Item, DeliveryProvider } from '../lib/supabaseHelpers';
-import { ArrowLeft, Plus, Edit3, Save, X, Trash2 } from 'lucide-react';
+import { supabaseHelpers, Item, DeliveryProvider, ExpenseCategory, ExpenseCategoryVatTreatment } from '../lib/supabaseHelpers';
+import { ArrowLeft, Plus, Edit3, Save, X, Trash2, Loader2 } from 'lucide-react';
 
 type AdminProps = {
   onBack: () => void;
@@ -37,6 +37,19 @@ export default function Admin({ onBack }: AdminProps) {
   const [provEditMethod, setProvEditMethod] = useState('');
   const [provEditManaged, setProvEditManaged] = useState(false);
 
+  // Expense categories state
+  const [categories, setCategories] = useState<ExpenseCategory[]>([]);
+  const [catName, setCatName] = useState('');
+  const [catCode, setCatCode] = useState('');
+  const [catParentId, setCatParentId] = useState('');
+  const [catLedgerCode, setCatLedgerCode] = useState('');
+  const [catDefaultVatTreatment, setCatDefaultVatTreatment] = useState<ExpenseCategoryVatTreatment>('recoverable');
+  const [catRequiresReceipt, setCatRequiresReceipt] = useState(false);
+  const [catRequiresApprovalAbove, setCatRequiresApprovalAbove] = useState('');
+  const [catIsActive, setCatIsActive] = useState(true);
+  const [catPolicyNotes, setCatPolicyNotes] = useState('');
+  const [catEditingId, setCatEditingId] = useState<string | null>(null);
+
   useEffect(() => {
     (async () => {
       try {
@@ -44,6 +57,7 @@ export default function Admin({ onBack }: AdminProps) {
         setRole(r);
         await loadItems();
         await loadProviders();
+        await loadCategories();
       } catch (e: any) {
         setError(e?.message || 'Failed to initialize');
       } finally {
@@ -70,6 +84,15 @@ export default function Admin({ onBack }: AdminProps) {
       setProviders(data);
     } catch (e: any) {
       setError(e?.message || 'Failed to load delivery providers');
+    }
+  }
+
+  async function loadCategories() {
+    try {
+      const data = await supabaseHelpers.getExpenseCategories();
+      setCategories(data);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load categories');
     }
   }
 
@@ -209,6 +232,76 @@ export default function Admin({ onBack }: AdminProps) {
       await loadProviders();
     } catch (e: any) {
       setError(e?.message || 'Failed to delete provider');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveCategory() {
+    if (!catName.trim() || !catCode.trim()) {
+      setError('Category name and code are required');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        name: catName.trim(),
+        code: catCode.trim(),
+        parent_category_id: catParentId || null,
+        ledger_account_code: catLedgerCode.trim() || null,
+        default_vat_treatment: catDefaultVatTreatment,
+        requires_receipt: catRequiresReceipt,
+        requires_approval_above: catRequiresApprovalAbove ? Number(catRequiresApprovalAbove) : null,
+        is_active: catIsActive,
+        policy_notes: catPolicyNotes.trim() || null,
+      };
+      if (catEditingId) {
+        await supabaseHelpers.updateExpenseCategory(catEditingId, payload);
+      } else {
+        await supabaseHelpers.createExpenseCategory(payload);
+      }
+      resetCategoryForm();
+      await loadCategories();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to save category');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function resetCategoryForm() {
+    setCatEditingId(null);
+    setCatName('');
+    setCatCode('');
+    setCatParentId('');
+    setCatLedgerCode('');
+    setCatDefaultVatTreatment('recoverable');
+    setCatRequiresReceipt(false);
+    setCatRequiresApprovalAbove('');
+    setCatIsActive(true);
+    setCatPolicyNotes('');
+  }
+
+  function startEditCategory(cat: ExpenseCategory) {
+    setCatEditingId(cat.id);
+    setCatName(cat.name || '');
+    setCatCode(cat.code || '');
+    setCatParentId(cat.parent_category_id || '');
+    setCatLedgerCode(cat.ledger_account_code || '');
+    setCatDefaultVatTreatment((cat.default_vat_treatment as ExpenseCategoryVatTreatment) || 'recoverable');
+    setCatRequiresReceipt(Boolean(cat.requires_receipt));
+    setCatRequiresApprovalAbove(cat.requires_approval_above != null ? String(cat.requires_approval_above) : '');
+    setCatIsActive(cat.is_active);
+    setCatPolicyNotes(cat.policy_notes || '');
+  }
+
+  async function toggleCategoryActive(cat: ExpenseCategory) {
+    setSaving(true);
+    try {
+      await supabaseHelpers.updateExpenseCategory(cat.id, { is_active: !cat.is_active });
+      await loadCategories();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to update category');
     } finally {
       setSaving(false);
     }
@@ -452,6 +545,181 @@ export default function Admin({ onBack }: AdminProps) {
         </div>
 
         {/* Delivery Providers Management */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-800">{catEditingId ? 'Edit Category' : 'Add Category'}</h2>
+              <p className="text-sm text-slate-600">Expense categories with policy controls.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={saveCategory}
+                disabled={saving}
+                className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                {catEditingId ? 'Save Changes' : 'Add Category'}
+              </button>
+              {catEditingId && (
+                <button
+                  onClick={resetCategoryForm}
+                  className="px-3 py-2 border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+            <div>
+              <label className="block text-xs text-slate-600 mb-1">Name</label>
+              <input
+                value={catName}
+                onChange={(e) => setCatName(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Travel"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-600 mb-1">Code</label>
+              <input
+                value={catCode}
+                onChange={(e) => setCatCode(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="TRVL"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-600 mb-1">Parent</label>
+              <select
+                value={catParentId}
+                onChange={(e) => setCatParentId(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">None</option>
+                {categories.filter((c) => c.is_active || c.id === catParentId).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-600 mb-1">Ledger Account Code</label>
+              <input
+                value={catLedgerCode}
+                onChange={(e) => setCatLedgerCode(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="5001"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-600 mb-1">Default VAT Treatment</label>
+              <select
+                value={catDefaultVatTreatment}
+                onChange={(e) => setCatDefaultVatTreatment(e.target.value as ExpenseCategoryVatTreatment)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="recoverable">Recoverable</option>
+                <option value="non_recoverable">Non-recoverable</option>
+                <option value="mixed">Mixed</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-700 inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={catRequiresReceipt}
+                  onChange={(e) => setCatRequiresReceipt(e.target.checked)}
+                />
+                Requires receipt
+              </label>
+              <label className="text-sm text-slate-700 inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={catIsActive}
+                  onChange={(e) => setCatIsActive(e.target.checked)}
+                />
+                Active
+              </label>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-600 mb-1">Requires approval above</label>
+              <input
+                type="number"
+                value={catRequiresApprovalAbove}
+                onChange={(e) => setCatRequiresApprovalAbove(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Amount threshold"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-xs text-slate-600 mb-1">Policy notes</label>
+              <input
+                value={catPolicyNotes}
+                onChange={(e) => setCatPolicyNotes(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Any limits or instructions"
+              />
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-[760px] w-full">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Code</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">VAT</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Receipt</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase">Status</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {categories.map((cat) => (
+                  <tr key={cat.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-slate-800">{cat.name}</div>
+                      {cat.parent_category_id && (
+                        <div className="text-xs text-slate-600">Parent: {categories.find((c) => c.id === cat.parent_category_id)?.name || '-'}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">{cat.code}</td>
+                    <td className="px-4 py-3 capitalize text-slate-700">{cat.default_vat_treatment?.replace('_', ' ') || 'recoverable'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex px-2 py-1 rounded-full text-[11px] font-medium ${cat.requires_receipt ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700'}`}>
+                        {cat.requires_receipt ? 'Required' : 'Optional'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex px-2 py-1 rounded-full text-[11px] font-medium ${cat.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'}`}>
+                        {cat.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => startEditCategory(cat)}
+                          className="p-2 bg-slate-100 text-slate-700 rounded hover:bg-slate-200"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => toggleCategoryActive(cat)}
+                          disabled={saving}
+                          className={`p-2 rounded ${cat.is_active ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} disabled:opacity-50`}
+                        >
+                          {cat.is_active ? 'Disable' : 'Enable'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-slate-800">Delivery Providers</h2>

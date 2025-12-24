@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Home, Store, Timer, FileText, Shield, Settings, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List } from 'lucide-react';
+import { Home, Store, Timer, FileText, Shield, Settings, ChevronLeft, ChevronRight, Calendar as CalendarIcon, List, Wallet, Building2, Banknote } from 'lucide-react';
 
 type SidebarProps = {
   currentView: string;
@@ -24,6 +24,10 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'live_shows', label: 'Live Shows', Icon: FileText },
   { key: 'live_shows_all', label: 'All Live Shows', Icon: List },
   { key: 'calendar', label: 'Calendar', Icon: CalendarIcon },
+  { key: 'expenses', label: 'Expenses', Icon: Wallet, roles: ['admin', 'manager'] },
+  { key: 'cash_daily', label: 'Daily Cash', Icon: Banknote, roles: ['admin', 'manager'] },
+  { key: 'accounts', label: 'Accounts', Icon: Banknote, roles: ['admin', 'manager'] },
+  { key: 'vendors', label: 'Vendors', Icon: Building2, roles: ['admin', 'manager'] },
   { key: 'kitchen_admin', label: 'Kitchen Admin', Icon: Shield, roles: ['admin'] },
   { key: 'admin', label: 'Admin', Icon: Shield, roles: ['admin'] },
   { key: 'settings', label: 'Settings', Icon: Settings },

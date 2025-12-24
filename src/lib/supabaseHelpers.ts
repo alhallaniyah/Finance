@@ -9,7 +9,7 @@ import {
 } from './cacheUtils';
 
 const DOCUMENTS_CACHE_TTL_MS = 60_000; // 60 seconds
-const DOCUMENT_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
+const DOCUMENT_PAGES_CACHE_TTL_MS = 0; // disabled for dashboard freshness
 const KITCHEN_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
 const LIVE_SHOW_PAGES_CACHE_TTL_MS = 60_000; // 60 seconds
 const LIST_CACHE_TTL_MS = 60_000; // 60 seconds
@@ -21,10 +21,14 @@ const liveShowPagesCache = createKeyedCache<{ data: LiveShow[]; total: number }>
 const itemsCache = createMemoryCache<Item[]>(LIST_CACHE_TTL_MS);
 const deliveryProvidersCache = createMemoryCache<DeliveryProvider[]>(LIST_CACHE_TTL_MS);
 const liveShowsCache = createMemoryCache<LiveShow[]>(LIST_CACHE_TTL_MS);
+const vendorsCache = createMemoryCache<Vendor[]>(LIST_CACHE_TTL_MS);
+const accountsCache = createMemoryCache<Account[]>(LIST_CACHE_TTL_MS);
+const expenseCategoriesCache = createMemoryCache<ExpenseCategory[]>(LIST_CACHE_TTL_MS);
+const expensePagesCache = createKeyedCache<{ data: Expense[]; total: number }>(LIST_CACHE_TTL_MS);
 
 // LocalStorage TTLs (longer-lived than in-memory)
 const LOCAL_LIST_CACHE_TTL_MS = 15 * 60_000; // 15 minutes
-const LOCAL_PAGE_CACHE_TTL_MS = 15 * 60_000; // 15 minutes
+const LOCAL_PAGE_CACHE_TTL_MS = 0; // disable page local caching for freshness
 const LOCAL_CLIENTS_CACHE_TTL_MS = 60 * 60_000; // 60 minutes (frequently used in POS)
 
 function nowMs() {
@@ -48,16 +52,33 @@ function documentPageCacheKey(page: number, pageSize: number, filtersKey: string
 }
 
 function getDocumentPageCache(key: string) {
-  return documentPagesCache.get(key);
+  return DOCUMENT_PAGES_CACHE_TTL_MS === 0 ? null : documentPagesCache.get(key);
 }
 
 function setDocumentPageCache(key: string, payload: { data: Document[]; total: number }) {
-  documentPagesCache.set(key, payload);
+  if (DOCUMENT_PAGES_CACHE_TTL_MS !== 0) documentPagesCache.set(key, payload);
 }
 
 function invalidateDocumentPagesCache() {
   documentPagesCache.invalidate();
   removeLocalCacheByPrefix('cache:documents:page:');
+}
+
+function expensePageCacheKey(page: number, pageSize: number, filtersKey: string) {
+  return `${page}:${pageSize}:${filtersKey}`;
+}
+
+function getExpensePageCache(key: string) {
+  return expensePagesCache.get(key);
+}
+
+function setExpensePageCache(key: string, payload: { data: Expense[]; total: number }) {
+  expensePagesCache.set(key, payload);
+}
+
+function invalidateExpensePagesCache() {
+  expensePagesCache.invalidate();
+  removeLocalCacheByPrefix('cache:expenses:page:');
 }
 
 function escapeIlike(term: string) {
@@ -116,6 +137,61 @@ function applyDocumentFilters(query: any, normalized: NormalizedDocumentFilters)
   if (normalized.searchTerm) {
     const escaped = escapeIlike(normalized.searchTerm);
     query.or(`document_number.ilike.%${escaped}%,client_name.ilike.%${escaped}%`);
+  }
+  query.order(normalized.sortColumn, { ascending: normalized.sortDirection === 'asc' });
+  return query;
+}
+
+type NormalizedExpenseFilters = {
+  searchTerm: string;
+  vendorId?: string;
+  accountId?: string;
+  category?: string;
+  isBackfilled: boolean | 'all';
+  approvalStatus: ExpenseApprovalStatus | 'all';
+  reimbursementStatus: ExpenseReimbursementStatus | 'all';
+  paidBy: 'company' | 'employee' | 'all';
+  periodYear?: number;
+  periodMonth?: number;
+  sortColumn: 'expense_date' | 'created_at' | 'gross_amount';
+  sortDirection: 'asc' | 'desc';
+};
+
+function normalizeExpenseFilters(filters?: ExpensePageFilters): NormalizedExpenseFilters {
+  const sortDirection = filters?.sortDirection === 'asc' ? 'asc' : 'desc';
+  const allowedSortColumns = new Set(['expense_date', 'created_at', 'gross_amount']);
+  const sortColumn = allowedSortColumns.has(filters?.sortColumn || '')
+    ? (filters?.sortColumn as 'expense_date' | 'created_at' | 'gross_amount')
+    : 'expense_date';
+  return {
+    searchTerm: (filters?.searchTerm || '').trim(),
+    vendorId: filters?.vendorId || undefined,
+    accountId: filters?.accountId || undefined,
+    category: filters?.category || undefined,
+    isBackfilled: typeof filters?.isBackfilled === 'boolean' ? filters.isBackfilled : 'all',
+    approvalStatus: (filters?.approvalStatus && filters.approvalStatus !== 'all') ? filters.approvalStatus : 'all',
+    reimbursementStatus: (filters?.reimbursementStatus && filters.reimbursementStatus !== 'all') ? filters.reimbursementStatus : 'all',
+    paidBy: filters?.paidBy || 'all',
+    periodYear: filters?.periodYear || undefined,
+    periodMonth: filters?.periodMonth || undefined,
+    sortColumn,
+    sortDirection,
+  };
+}
+
+function applyExpenseFilters(query: any, normalized: NormalizedExpenseFilters) {
+  if (normalized.vendorId) query.eq('vendor_id', normalized.vendorId);
+  if (normalized.accountId) query.eq('account_id', normalized.accountId);
+  if (normalized.category) query.ilike('category', `%${escapeIlike(normalized.category)}%`);
+  if (normalized.isBackfilled !== 'all') query.eq('is_backfilled', normalized.isBackfilled);
+  if (normalized.approvalStatus !== 'all') query.eq('approval_status', normalized.approvalStatus);
+  if (normalized.reimbursementStatus !== 'all') query.eq('reimbursement_status', normalized.reimbursementStatus);
+  if (normalized.paidBy !== 'all') query.eq('paid_by', normalized.paidBy);
+  if (normalized.periodYear) query.eq('period_year', normalized.periodYear);
+  if (normalized.periodMonth) query.eq('period_month', normalized.periodMonth);
+  if (normalized.searchTerm) {
+    const escaped = escapeIlike(normalized.searchTerm);
+    query.or(`business_purpose.ilike.%${escaped}%,category.ilike.%${escaped}%,subcategory.ilike.%${escaped}%`);
   }
   query.order(normalized.sortColumn, { ascending: normalized.sortDirection === 'asc' });
   return query;
@@ -245,6 +321,7 @@ export type Client = {
   user_id: string;
 };
 
+export type DocumentStatus = 'draft' | 'sent' | 'paid' | 'cancelled';
 export type Document = {
   id: string;
   document_type: string;
@@ -264,7 +341,7 @@ export type Document = {
   total?: number;
   notes?: string;
   terms?: string;
-  status?: string;
+  status?: DocumentStatus;
   origin?: 'dashboard' | 'pos_in_store' | 'pos_delivery';
   payment_method?: string;
   payment_card_amount?: number;
@@ -279,11 +356,26 @@ export type Document = {
 export type DocumentPageFilters = {
   searchTerm?: string;
   filterType?: 'quotation' | 'invoice' | 'delivery_note' | 'all';
-  filterStatus?: 'draft' | 'sent' | 'paid' | 'cancelled' | 'all';
+  filterStatus?: DocumentStatus | 'all';
   filterOrigin?: 'dashboard' | 'pos_in_store' | 'pos_delivery' | 'all';
   filterDateFrom?: string;
   filterDateTo?: string;
   sortColumn?: 'created_at' | 'issue_date' | 'document_number' | 'total';
+  sortDirection?: 'asc' | 'desc';
+};
+
+export type ExpensePageFilters = {
+  searchTerm?: string;
+  vendorId?: string;
+  accountId?: string;
+  category?: string;
+  isBackfilled?: boolean | 'all';
+  approvalStatus?: ExpenseApprovalStatus | 'all';
+  reimbursementStatus?: ExpenseReimbursementStatus | 'all';
+  paidBy?: 'company' | 'employee' | 'all';
+  periodYear?: number;
+  periodMonth?: number;
+  sortColumn?: 'expense_date' | 'created_at' | 'gross_amount';
   sortDirection?: 'asc' | 'desc';
 };
 
@@ -350,6 +442,135 @@ export type DeliveryProviderOverride = {
   sku?: string | null;
   price: number;
   created_at?: string;
+};
+
+export type VendorType = 'supplier' | 'utility' | 'landlord' | 'government' | 'other';
+export type Vendor = {
+  id: string;
+  company_id?: string | null;
+  name: string;
+  type: VendorType;
+  phone?: string | null;
+  manager_phone?: string | null;
+  vat_trn?: string | null;
+  country?: string | null;
+  default_vat_rate?: number | null;
+  notes?: string | null;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ExpenseCategoryVatTreatment = 'recoverable' | 'non_recoverable' | 'mixed';
+export type ExpenseCategory = {
+  id: string;
+  company_id?: string | null;
+  name: string;
+  code: string;
+  parent_category_id?: string | null;
+  ledger_account_code?: string | null;
+  default_vat_treatment?: ExpenseCategoryVatTreatment | null;
+  requires_receipt?: boolean | null;
+  requires_approval_above?: number | null;
+  is_active: boolean;
+  policy_notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type CashDailyBalance = {
+  id: string;
+  company_id?: string | null;
+  account_id: string;
+  entry_date: string;
+  opening_amount: number;
+  closing_amount?: number | null;
+  difference?: number | null;
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type AccountType = 'bank' | 'cash' | 'petty_cash' | 'employee' | 'credit_card';
+export type Account = {
+  id: string;
+  company_id?: string | null;
+  name: string;
+  type: AccountType;
+  currency?: string;
+  opening_balance?: number;
+  current_balance?: number;
+  linked_user_id?: string | null;
+  is_active: boolean;
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ExpenseApprovalStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'locked';
+export type ExpenseReimbursementStatus = 'not_required' | 'pending' | 'partial' | 'reimbursed';
+export type ExpenseVatInputType = 'inclusive' | 'exclusive';
+export type ExpenseVatTreatment =
+  | 'recoverable'
+  | 'partially_recoverable'
+  | 'non_recoverable'
+  | 'exempt'
+  | 'zero_rated'
+  | 'out_of_scope';
+export type Expense = {
+  id: string;
+  company_id?: string | null;
+  expense_date: string;
+  submission_date?: string;
+  vendor_id?: string | null;
+  gross_amount: number;
+  net_amount: number;
+  vat_amount: number;
+  vat_rate: number;
+  vat_recoverable: boolean;
+  vat_input_type?: ExpenseVatInputType | null;
+  vat_treatment?: ExpenseVatTreatment | null;
+  recoverable_vat_amount?: number | null;
+  non_recoverable_vat_amount?: number | null;
+  currency: string;
+  category_id?: string | null;
+  category?: string | null;
+  subcategory?: string | null;
+  business_purpose?: string | null;
+  project_id?: string | null;
+  cost_center_id?: string | null;
+  account_id?: string | null;
+  paid_by: 'company' | 'employee';
+  is_reimbursable?: boolean | null;
+  employee_user_id?: string | null;
+  reimbursement_status: ExpenseReimbursementStatus;
+  approval_status: ExpenseApprovalStatus;
+  receipt_id?: string | null;
+  receipt_url?: string | null;
+  has_receipt?: boolean | null;
+  receipt_lost?: boolean | null;
+  ocr_data?: any;
+  ocr_confidence?: number | null;
+  is_backfilled: boolean;
+  period_year: number;
+  period_month: number;
+  created_by?: string | null;
+  approved_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  vendor?: Vendor | null;
+  account?: Account | null;
+};
+
+export type AccountingPeriodStatus = 'open' | 'locked' | 'backfill_locked';
+export type AccountingPeriod = {
+  company_id: string;
+  period_year: number;
+  period_month: number;
+  status: AccountingPeriodStatus;
+  locked_by?: string | null;
+  locked_at?: string | null;
+  notes?: string | null;
 };
 
 // Kitchen Stopwatch Module types
@@ -950,6 +1171,472 @@ export const supabaseHelpers = {
     // Invalidate caches so deletion reflects in list immediately
     invalidateLiveShowsCache();
     invalidateLiveShowPagesCache();
+  },
+
+  // -------- Expenses & Vendors --------
+  async getVendors(): Promise<Vendor[]> {
+    const cached = vendorsCache.get();
+    if (cached) return cached;
+    const companyId = await supabaseHelpers.resolveCompanyId();
+    const lsKey = `cache:vendors:list:${companyId || 'none'}`;
+    const lsCached = readLocalCache<Vendor[]>(lsKey);
+    if (lsCached && nowMs() - lsCached.timestamp < LOCAL_LIST_CACHE_TTL_MS) {
+      const data = (lsCached.data || []) as Vendor[];
+      vendorsCache.set(data);
+      return data;
+    }
+    const query = supabase.from('vendors').select('*').order('name', { ascending: true });
+    if (companyId) query.eq('company_id', companyId);
+    const { data, error } = await query;
+    if (error) throw error;
+    const rows = (data || []) as Vendor[];
+    vendorsCache.set(rows);
+    writeLocalCache(lsKey, { data: rows });
+    return rows;
+  },
+
+  async createVendor(payload: {
+    name: string;
+    type?: VendorType;
+    phone?: string | null;
+    manager_phone?: string | null;
+    vat_trn?: string | null;
+    country?: string | null;
+    default_vat_rate?: number | null;
+    notes?: string | null;
+  }): Promise<Vendor> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+    const { data, error } = await supabase
+      .from('vendors')
+      .insert({
+        name: payload.name.trim(),
+        type: payload.type || 'supplier',
+        phone: (payload as any).phone || null,
+        manager_phone: (payload as any).manager_phone || null,
+        vat_trn: payload.vat_trn || null,
+        country: payload.country || null,
+        default_vat_rate: typeof payload.default_vat_rate === 'number' ? payload.default_vat_rate : null,
+        notes: payload.notes || null,
+        created_by: user.id,
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+    vendorsCache.invalidate();
+    removeLocalCacheByPrefix('cache:vendors:list:');
+    return data as Vendor;
+  },
+
+  async updateVendor(id: string, updates: Partial<Pick<Vendor, 'name' | 'type' | 'phone' | 'manager_phone' | 'vat_trn' | 'country' | 'default_vat_rate' | 'notes' | 'is_active'>>): Promise<void> {
+    const { error } = await supabase
+      .from('vendors')
+      .update({
+        name: updates.name?.trim(),
+        type: updates.type,
+        phone: (updates as any).phone ?? undefined,
+        manager_phone: (updates as any).manager_phone ?? undefined,
+        vat_trn: updates.vat_trn ?? null,
+        country: updates.country ?? null,
+        default_vat_rate: typeof updates.default_vat_rate === 'number' ? updates.default_vat_rate : undefined,
+        notes: updates.notes ?? null,
+        is_active: updates.is_active,
+      })
+      .eq('id', id);
+    if (error) throw error;
+    vendorsCache.invalidate();
+    removeLocalCacheByPrefix('cache:vendors:list:');
+  },
+
+  async archiveVendor(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('vendors')
+      .update({ is_active: false })
+      .eq('id', id);
+    if (error) throw error;
+    vendorsCache.invalidate();
+    removeLocalCacheByPrefix('cache:vendors:list:');
+  },
+
+  async getExpenseCategories(): Promise<ExpenseCategory[]> {
+    const cached = expenseCategoriesCache.get();
+    if (cached) return cached;
+    const companyId = await supabaseHelpers.resolveCompanyId();
+    const lsKey = `cache:expense_categories:list:${companyId || 'none'}`;
+    const lsCached = readLocalCache<ExpenseCategory[]>(lsKey);
+    if (lsCached && nowMs() - lsCached.timestamp < LOCAL_LIST_CACHE_TTL_MS) {
+      const data = (lsCached.data || []) as ExpenseCategory[];
+      expenseCategoriesCache.set(data);
+      return data;
+    }
+    const query = supabase.from('expense_categories').select('*').order('name', { ascending: true });
+    if (companyId) query.eq('company_id', companyId);
+    const { data, error } = await query;
+    if (error) throw error;
+    const rows = (data || []) as ExpenseCategory[];
+    expenseCategoriesCache.set(rows);
+    writeLocalCache(lsKey, { data: rows });
+    return rows;
+  },
+
+  async createExpenseCategory(payload: {
+    name: string;
+    code: string;
+    parent_category_id?: string | null;
+    ledger_account_code?: string | null;
+    default_vat_treatment?: ExpenseCategoryVatTreatment | null;
+    requires_receipt?: boolean | null;
+    requires_approval_above?: number | null;
+    is_active?: boolean;
+    policy_notes?: string | null;
+  }): Promise<ExpenseCategory> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+    const { data, error } = await supabase
+      .from('expense_categories')
+      .insert({
+        name: payload.name.trim(),
+        code: payload.code.trim(),
+        parent_category_id: payload.parent_category_id || null,
+        ledger_account_code: payload.ledger_account_code || null,
+        default_vat_treatment: payload.default_vat_treatment || 'recoverable',
+        requires_receipt: payload.requires_receipt ?? false,
+        requires_approval_above: typeof payload.requires_approval_above === 'number' ? payload.requires_approval_above : null,
+        is_active: payload.is_active ?? true,
+        policy_notes: payload.policy_notes || null,
+        created_by: user.id,
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+    expenseCategoriesCache.invalidate();
+    removeLocalCacheByPrefix('cache:expense_categories:list:');
+    return data as ExpenseCategory;
+  },
+
+  async updateExpenseCategory(id: string, updates: Partial<Pick<ExpenseCategory, 'name' | 'code' | 'parent_category_id' | 'ledger_account_code' | 'default_vat_treatment' | 'requires_receipt' | 'requires_approval_above' | 'is_active' | 'policy_notes'>>): Promise<void> {
+    const { error } = await supabase
+      .from('expense_categories')
+      .update({
+        name: updates.name?.trim(),
+        code: updates.code?.trim(),
+        parent_category_id: updates.parent_category_id ?? null,
+        ledger_account_code: updates.ledger_account_code ?? null,
+        default_vat_treatment: updates.default_vat_treatment,
+        requires_receipt: updates.requires_receipt,
+        requires_approval_above: typeof updates.requires_approval_above === 'number' ? updates.requires_approval_above : null,
+        is_active: updates.is_active,
+        policy_notes: updates.policy_notes ?? null,
+      })
+      .eq('id', id);
+    if (error) throw error;
+    expenseCategoriesCache.invalidate();
+    removeLocalCacheByPrefix('cache:expense_categories:list:');
+  },
+
+  async archiveExpenseCategory(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('expense_categories')
+      .update({ is_active: false })
+      .eq('id', id);
+    if (error) throw error;
+    expenseCategoriesCache.invalidate();
+    removeLocalCacheByPrefix('cache:expense_categories:list:');
+  },
+
+  async getCashDailyBalances(limitDays = 30): Promise<CashDailyBalance[]> {
+    const companyId = await supabaseHelpers.resolveCompanyId();
+    if (!companyId) throw new Error('No company selected');
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - limitDays);
+    const { data, error } = await supabase
+      .from('cash_daily_balances')
+      .select('*')
+      .eq('company_id', companyId)
+      .gte('entry_date', fromDate.toISOString().slice(0, 10))
+      .order('entry_date', { ascending: false });
+    if (error) throw error;
+    return (data || []) as CashDailyBalance[];
+  },
+
+  async upsertCashDailyBalance(payload: {
+    account_id: string;
+    entry_date: string;
+    opening_amount: number;
+    closing_amount?: number | null;
+    notes?: string | null;
+  }): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+    const companyId = await supabaseHelpers.resolveCompanyId();
+    if (!companyId) throw new Error('No company selected');
+    const difference =
+      typeof payload.closing_amount === 'number' && typeof payload.opening_amount === 'number'
+        ? Number((payload.closing_amount - payload.opening_amount).toFixed(2))
+        : null;
+    const { error } = await supabase
+      .from('cash_daily_balances')
+      .upsert({
+        company_id: companyId,
+        account_id: payload.account_id,
+        entry_date: payload.entry_date,
+        opening_amount: payload.opening_amount,
+        closing_amount: payload.closing_amount ?? null,
+        difference,
+        notes: payload.notes ?? null,
+        created_by: user.id,
+        updated_by: user.id,
+      }, { onConflict: 'company_id,account_id,entry_date' });
+    if (error) throw error;
+  },
+
+  async getAccounts(): Promise<Account[]> {
+    const cached = accountsCache.get();
+    if (cached) return cached;
+    const companyId = await supabaseHelpers.resolveCompanyId();
+    const lsKey = `cache:accounts:list:${companyId || 'none'}`;
+    const lsCached = readLocalCache<Account[]>(lsKey);
+    if (lsCached && nowMs() - lsCached.timestamp < LOCAL_LIST_CACHE_TTL_MS) {
+      const data = (lsCached.data || []) as Account[];
+      accountsCache.set(data);
+      return data;
+    }
+    const query = supabase.from('accounts').select('*').order('name', { ascending: true });
+    if (companyId) query.eq('company_id', companyId);
+    const { data, error } = await query;
+    if (error) throw error;
+    const rows = (data || []) as Account[];
+    accountsCache.set(rows);
+    writeLocalCache(lsKey, { data: rows });
+    return rows;
+  },
+
+  async createAccount(payload: { name: string; type: AccountType; currency?: string; opening_balance?: number; linked_user_id?: string | null; notes?: string | null }): Promise<Account> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+    const { data, error } = await supabase
+      .from('accounts')
+      .insert({
+        name: payload.name.trim(),
+        type: payload.type,
+        currency: payload.currency || 'AED',
+        opening_balance: typeof payload.opening_balance === 'number' ? payload.opening_balance : 0,
+        current_balance: typeof payload.opening_balance === 'number' ? payload.opening_balance : 0,
+        linked_user_id: payload.linked_user_id || null,
+        notes: payload.notes || null,
+        created_by: user.id,
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+    accountsCache.invalidate();
+    removeLocalCacheByPrefix('cache:accounts:list:');
+    return data as Account;
+  },
+
+  async updateAccount(id: string, updates: Partial<Pick<Account, 'name' | 'type' | 'currency' | 'notes' | 'linked_user_id' | 'is_active'>>): Promise<void> {
+    const { error } = await supabase
+      .from('accounts')
+      .update({
+        name: updates.name?.trim(),
+        type: updates.type,
+        currency: updates.currency,
+        notes: updates.notes ?? null,
+        linked_user_id: updates.linked_user_id ?? null,
+        is_active: updates.is_active,
+      })
+      .eq('id', id);
+    if (error) throw error;
+    accountsCache.invalidate();
+    removeLocalCacheByPrefix('cache:accounts:list:');
+  },
+
+  async archiveAccount(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('accounts')
+      .update({ is_active: false })
+      .eq('id', id);
+    if (error) throw error;
+    accountsCache.invalidate();
+    removeLocalCacheByPrefix('cache:accounts:list:');
+  },
+
+  async getExpensesPage(page: number, pageSize: number, filters?: ExpensePageFilters): Promise<{ data: Expense[]; total: number }> {
+    const companyId = await supabaseHelpers.resolveCompanyId();
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+    const normalized = normalizeExpenseFilters(filters);
+    let query = supabase
+      .from('expenses')
+      .select('*', { count: 'planned' })
+      .range(from, to);
+    if (companyId) {
+      query = query.eq('company_id', companyId);
+    }
+    query = applyExpenseFilters(query, normalized);
+    const { data, error, count } = await query;
+    if (error) throw error;
+    const payload = { data: (data || []) as Expense[], total: count || 0 };
+    return payload;
+  },
+
+  async getExpenseById(id: string): Promise<Expense | null> {
+    const { data, error } = await supabase
+      .from('expenses')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    return (data || null) as Expense | null;
+  },
+
+  async createExpense(payload: {
+    expense_date: string;
+    vendor_id?: string | null;
+    category_id?: string | null;
+    gross_amount: number;
+    net_amount: number;
+    vat_amount?: number;
+    vat_rate?: number;
+    vat_recoverable?: boolean;
+    vat_input_type?: ExpenseVatInputType | null;
+    vat_treatment?: ExpenseVatTreatment | null;
+    recoverable_vat_amount?: number | null;
+    non_recoverable_vat_amount?: number | null;
+    currency?: string;
+    category?: string;
+    subcategory?: string;
+    business_purpose?: string;
+    project_id?: string | null;
+    cost_center_id?: string | null;
+    account_id?: string | null;
+    paid_by: 'company' | 'employee';
+    is_reimbursable?: boolean | null;
+    employee_user_id?: string | null;
+    reimbursement_status?: ExpenseReimbursementStatus;
+    approval_status?: ExpenseApprovalStatus;
+    receipt_id?: string | null;
+    receipt_url?: string | null;
+    has_receipt?: boolean | null;
+    receipt_lost?: boolean | null;
+    is_backfilled?: boolean;
+    period_year?: number;
+    period_month?: number;
+  }): Promise<Expense> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+    const periodDate = payload.expense_date ? new Date(payload.expense_date) : new Date();
+    const period_year = payload.period_year || periodDate.getFullYear();
+    const period_month = payload.period_month || periodDate.getMonth() + 1;
+    const { data, error } = await supabase
+      .from('expenses')
+      .insert({
+        expense_date: payload.expense_date,
+        submission_date: new Date().toISOString().slice(0, 10),
+        vendor_id: payload.vendor_id || null,
+        category_id: payload.category_id || null,
+        gross_amount: payload.gross_amount,
+        net_amount: payload.net_amount,
+        vat_amount: payload.vat_amount ?? 0,
+        vat_rate: payload.vat_rate ?? 0,
+        vat_recoverable: payload.vat_recoverable ?? true,
+        vat_input_type: payload.vat_input_type ?? null,
+        vat_treatment: payload.vat_treatment ?? null,
+        recoverable_vat_amount: typeof payload.recoverable_vat_amount === 'number' ? payload.recoverable_vat_amount : null,
+        non_recoverable_vat_amount: typeof payload.non_recoverable_vat_amount === 'number' ? payload.non_recoverable_vat_amount : null,
+        currency: payload.currency || 'AED',
+        category: payload.category || null,
+        subcategory: payload.subcategory || null,
+        business_purpose: payload.business_purpose || null,
+        project_id: payload.project_id || null,
+        cost_center_id: payload.cost_center_id || null,
+        account_id: payload.account_id || null,
+        paid_by: payload.paid_by,
+        is_reimbursable: payload.is_reimbursable ?? false,
+        employee_user_id: payload.employee_user_id || null,
+        reimbursement_status: payload.reimbursement_status || 'not_required',
+        approval_status: payload.approval_status || 'submitted',
+        receipt_id: payload.receipt_id || null,
+        receipt_url: payload.receipt_url ?? null,
+        has_receipt: payload.has_receipt ?? false,
+        receipt_lost: payload.receipt_lost ?? false,
+        is_backfilled: payload.is_backfilled ?? false,
+        period_year,
+        period_month,
+        created_by: user.id,
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+    invalidateExpensePagesCache();
+    return data as Expense;
+  },
+
+  async updateExpense(id: string, updates: Partial<Omit<Expense, 'id' | 'company_id' | 'created_at' | 'updated_at'>>): Promise<void> {
+    const patch: Record<string, any> = {};
+    const hasKey = (key: keyof Expense) => Object.prototype.hasOwnProperty.call(updates, key);
+    const normalizeOptional = <T>(value: T | null | undefined) => (value === undefined ? undefined : value ?? null);
+    const applyField = (key: keyof Expense, value: any) => {
+      if (hasKey(key) && value !== undefined) {
+        patch[key as string] = value;
+      }
+    };
+
+    applyField('expense_date', updates.expense_date);
+    applyField('vendor_id', normalizeOptional(updates.vendor_id));
+    applyField('gross_amount', updates.gross_amount);
+    applyField('net_amount', updates.net_amount);
+    applyField('vat_amount', updates.vat_amount);
+    applyField('vat_rate', updates.vat_rate);
+    applyField('vat_recoverable', updates.vat_recoverable);
+    applyField('vat_input_type', normalizeOptional(updates.vat_input_type));
+    applyField('vat_treatment', normalizeOptional(updates.vat_treatment));
+    applyField('recoverable_vat_amount', updates.recoverable_vat_amount);
+    applyField('non_recoverable_vat_amount', updates.non_recoverable_vat_amount);
+    applyField('currency', updates.currency);
+    applyField('category_id', normalizeOptional(updates.category_id));
+    applyField('category', normalizeOptional(updates.category));
+    applyField('subcategory', normalizeOptional(updates.subcategory));
+    applyField('business_purpose', normalizeOptional(updates.business_purpose));
+    applyField('project_id', normalizeOptional(updates.project_id));
+    applyField('cost_center_id', normalizeOptional(updates.cost_center_id));
+    applyField('account_id', normalizeOptional(updates.account_id));
+    applyField('paid_by', updates.paid_by);
+    applyField('is_reimbursable', updates.is_reimbursable);
+    applyField('employee_user_id', normalizeOptional(updates.employee_user_id));
+    applyField('reimbursement_status', updates.reimbursement_status);
+    applyField('approval_status', updates.approval_status);
+    applyField('receipt_id', normalizeOptional(updates.receipt_id));
+    applyField('receipt_url', normalizeOptional(updates.receipt_url));
+    applyField('has_receipt', updates.has_receipt);
+    applyField('receipt_lost', updates.receipt_lost);
+    applyField('ocr_data', normalizeOptional(updates.ocr_data));
+    applyField('ocr_confidence', updates.ocr_confidence);
+    applyField('is_backfilled', updates.is_backfilled);
+    applyField('period_year', updates.period_year);
+    applyField('period_month', updates.period_month);
+
+    if (hasKey('expense_date') && updates.expense_date && (!hasKey('period_year') || !hasKey('period_month'))) {
+      const d = new Date(updates.expense_date);
+      if (!hasKey('period_year')) patch.period_year = d.getFullYear();
+      if (!hasKey('period_month')) patch.period_month = d.getMonth() + 1;
+    }
+    if (Object.keys(patch).length === 0) return;
+    const { error } = await supabase
+      .from('expenses')
+      .update(patch)
+      .eq('id', id);
+    if (error) throw error;
+    invalidateExpensePagesCache();
+  },
+
+  async deleteExpense(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('expenses')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+    invalidateExpensePagesCache();
   },
 
   async getClientById(id: string): Promise<Client | null> {
@@ -1641,17 +2328,6 @@ export const supabaseHelpers = {
     return (data || []) as Document[];
   },
 
-  // Cached variant for dashboard/table views to avoid repeated DB loads
-  async getDocumentsCached(options?: { forceRefresh?: boolean }): Promise<Document[]> {
-    const cached = getDocumentsCache();
-    if (!options?.forceRefresh && cached) {
-      return cached;
-    }
-    const docs = await supabaseHelpers.getDocuments();
-    setDocumentsCache(docs);
-    return docs;
-  },
-
   // Paged listing: server-side filtering + pagination (Clean -> Filter -> Transform)
   async getDocumentsPage(
     page: number,
@@ -1663,21 +2339,6 @@ export const supabaseHelpers = {
     const start = (safePage - 1) * safePageSize;
     const end = start + safePageSize - 1;
     const normalizedFilters = normalizeDocumentFilters(filters);
-    const filtersKey = JSON.stringify(normalizedFilters);
-    const key = documentPageCacheKey(safePage, safePageSize, filtersKey);
-    const memoryCached = getDocumentPageCache(key);
-    if (memoryCached) {
-      return memoryCached;
-    }
-    const { data: authData } = await supabase.auth.getUser();
-    const userId = authData?.user?.id || 'anon';
-    const lsKey = `cache:documents:page:${userId}:${key}`;
-    const lsCached = readLocalCache<Document[]>(lsKey);
-    if (lsCached && nowMs() - lsCached.timestamp < LOCAL_PAGE_CACHE_TTL_MS) {
-      const payload = { data: (lsCached.data || []) as Document[], total: Number((lsCached as any).total) || 0 };
-      setDocumentPageCache(key, payload);
-      return payload;
-    }
     // Clean -> Filter -> Transform pattern keeps the query predictable and index-friendly
     const query = supabase
       .from('documents')
@@ -1689,10 +2350,7 @@ export const supabaseHelpers = {
     const { data, error, count } = await query;
 
     if (error) throw error;
-    const payload = { data: (data || []) as Document[], total: count ?? 0 };
-    setDocumentPageCache(key, payload);
-    writeLocalCache(lsKey, payload);
-    return payload;
+    return { data: (data || []) as Document[], total: count ?? 0 };
   },
 
   async getDocument(id: string): Promise<Document | null> {

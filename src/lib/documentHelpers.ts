@@ -35,10 +35,10 @@ export async function generateDocumentNumber(type: 'quotation' | 'invoice' | 'de
   }
 }
 
-export function formatCurrency(amount: number): string {
+export function formatCurrency(amount: number, currency: string = 'AED'): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'AED',
+    currency,
     minimumFractionDigits: 2,
   }).format(amount);
 }
