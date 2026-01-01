@@ -1,9 +1,23 @@
 import { useState, useEffect, useRef } from 'react';
 import { Document, Client, CompanySettings } from '../lib/supabaseHelpers';
 import { supabaseHelpers } from '../lib/supabaseHelpers';
-import { ArrowLeft, Plus, Trash2, Save, Printer } from 'lucide-react';
 import { generateDocumentNumber } from '../lib/documentHelpers';
 import { DELIVERY_PROVIDERS, DeliveryProviderOption } from '../data/deliveryProviders';
+import {
+  FormItem,
+  Status,
+  allowedStatuses,
+  documentTypeLabel,
+} from './Document form/documentFormTypes';
+import { DocumentHeader } from './Document form/DocumentHeader';
+import { DocumentMetaSection } from './Document form/DocumentMetaSection';
+import { InvoicePaymentSection } from './Document form/InvoicePaymentSection';
+import { DeliveryPaymentSection } from './Document form/DeliveryPaymentSection';
+import { ClientInfoSection } from './Document form/ClientInfoSection';
+import { ItemsSection } from './Document form/ItemsSection';
+import { NotesTermsSection } from './Document form/NotesTermsSection';
+import { SummaryPanel } from './Document form/SummaryPanel';
+import { FormActions } from './Document form/FormActions';
 
 type DocumentFormProps = {
   documentType: 'quotation' | 'invoice' | 'delivery_note';
@@ -12,48 +26,6 @@ type DocumentFormProps = {
   onBack: () => void;
   onSave: (documentId: string, options?: { print?: boolean }) => void;
 };
-
-type FormItem = {
-  id: string;
-  description: string;
-  quantity: number;
-  weight: number;
-  sell_by: 'unit' | 'weight';
-  unit_price: number;
-  amount: number;
-};
-
-const allowedStatuses = ['draft', 'sent', 'paid', 'cancelled'] as const;
-type Status = typeof allowedStatuses[number];
-const emirateOptions = [
-  'Abu Dhabi',
-  'Dubai',
-  'Sharjah',
-  'Ajman',
-  'Umm Al Quwain',
-  'Ras Al Khaimah',
-  'Fujairah',
-] as const;
-const originLabels = {
-  dashboard: 'Dashboard',
-  pos_in_store: 'POS In-Store',
-  pos_delivery: 'POS Delivery',
-} as const;
-
-const invoicePaymentOptions = [
-  { value: 'cash' as const, label: 'Cash' },
-  { value: 'card' as const, label: 'Card' },
-  { value: 'both' as const, label: 'Card + Cash' },
-];
-
-const deliveryPaymentOptions = [
-  { value: 'cod' as const, label: 'Cash on Delivery (COD)' },
-  { value: 'transfer' as const, label: 'Bank Transfer' },
-];
-
-function documentTypeLabel(type: 'quotation' | 'invoice' | 'delivery_note'): string {
-  return type === 'invoice' ? 'tax receipt' : type.replace('_', ' ');
-}
 
 export default function DocumentForm({
   documentType,
@@ -646,524 +618,105 @@ export default function DocumentForm({
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 py-8">
       <div className="max-w-5xl mx-auto px-6">
-        <div className="mb-6">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-2 text-slate-600 hover:text-slate-800 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            Back to Dashboard
-          </button>
-        </div>
-
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
-          <h1 className="text-2xl font-bold text-slate-800 mb-6 capitalize">{title}</h1>
+          <DocumentHeader title={title} onBack={onBack} />
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Document Number</label>
-                <input
-                  type="text"
-                  value={documentNumber}
-                  disabled
-                  className="w-full px-4 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-600"
-                />
-              </div>
+            <DocumentMetaSection
+              documentNumber={documentNumber}
+              documentOrigin={documentOrigin}
+              status={status}
+              issueDate={issueDate}
+              dueDate={dueDate}
+              onStatusChange={setStatus}
+              onIssueDateChange={setIssueDate}
+              onDueDateChange={setDueDate}
+            />
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Document Source</label>
-                <div
-                  className={`w-full px-4 py-2 rounded-lg border border-slate-200 ${
-                    documentOrigin === 'dashboard'
-                      ? 'bg-slate-50 text-slate-600'
-                      : documentOrigin === 'pos_in_store'
-                      ? 'bg-emerald-50 text-emerald-700'
-                      : 'bg-orange-50 text-orange-700'
-                  }`}
-                >
-                  {originLabels[documentOrigin]}
-                </div>
-              </div>
+            {documentType === 'invoice' && (
+              <InvoicePaymentSection
+                paymentMethod={paymentMethod as 'card' | 'cash' | 'both'}
+                paymentCardAmount={paymentCardAmount}
+                paymentCashAmount={paymentCashAmount}
+                total={total}
+                onPaymentMethodChange={(value) => setPaymentMethod(value)}
+                onCardAmountChange={handleCardAmountChange}
+              />
+            )}
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Status</label>
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as any)}
-                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="draft">Draft</option>
-                  <option value="sent">Sent</option>
-                  <option value="paid">Paid</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-              </div>
+            {documentType === 'delivery_note' && (
+              <DeliveryPaymentSection
+                paymentMethod={paymentMethod as 'cod' | 'transfer'}
+                onPaymentMethodChange={(value) => setPaymentMethod(value)}
+                deliveryFee={deliveryFee}
+                onDeliveryFeeChange={setDeliveryFee}
+                deliveryProviderId={deliveryProviderId}
+                onDeliveryProviderChange={handleDeliveryProviderChange}
+                deliveryProviderName={deliveryProviderName}
+                deliveryProviderPhone={deliveryProviderPhone}
+                deliveryProviderManagerPhone={deliveryProviderManagerPhone}
+                deliveryProviderManaged={deliveryProviderManaged}
+                providers={DELIVERY_PROVIDERS}
+              />
+            )}
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Issue Date</label>
-                <input
-                  type="date"
-                  value={issueDate}
-                  onChange={(e) => setIssueDate(e.target.value)}
-                  required
-                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
+            <ClientInfoSection
+              clients={clients}
+              clientId={clientId}
+              onClientSelect={handleClientSelect}
+              clientName={clientName}
+              onClientNameChange={setClientName}
+              clientEmail={clientEmail}
+              onClientEmailChange={setClientEmail}
+              clientPhone={clientPhone}
+              onClientPhoneChange={setClientPhone}
+              clientTrn={clientTrn}
+              onClientTrnChange={setClientTrn}
+              clientEmirate={clientEmirate}
+              onClientEmirateChange={setClientEmirate}
+              clientAddress={clientAddress}
+              onClientAddressChange={setClientAddress}
+            />
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Due Date</label>
-                <input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              {documentType === 'invoice' && (
-                <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Payment Method</label>
-                    <select
-                      value={paymentMethod}
-                      onChange={(e) => setPaymentMethod(e.target.value as any)}
-                      className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      {invoicePaymentOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {(paymentMethod === 'card' || paymentMethod === 'both') && (
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Card Amount</label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={(paymentMethod === 'card' ? total : paymentCardAmount).toFixed(2)}
-                          onChange={(e) => handleCardAmountChange(e.target.value)}
-                          disabled={paymentMethod === 'card'}
-                          className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                      </div>
-                    )}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Cash Amount</label>
-                      <input
-                        type="number"
-                        readOnly
-                        value={paymentCashAmount.toFixed(2)}
-                        className="w-full px-4 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-600"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {documentType === 'delivery_note' && (
-                <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Payment Method</label>
-                    <select
-                      value={paymentMethod}
-                      onChange={(e) => setPaymentMethod(e.target.value as any)}
-                      className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      {deliveryPaymentOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Delivery Fee (Reference)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={deliveryFee}
-                      onChange={(e) => setDeliveryFee(parseFloat(e.target.value) || 0)}
-                      required
-                      className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Delivery Provider</label>
-                    <select
-                      value={deliveryProviderId}
-                      onChange={(e) => handleDeliveryProviderChange(e.target.value)}
-                      required
-                      className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="">Select provider</option>
-                      {DELIVERY_PROVIDERS.map((provider) => (
-                        <option key={provider.id} value={provider.id}>
-                          {provider.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="p-4 border border-slate-200 rounded-lg bg-slate-50">
-                    {deliveryProviderName ? (
-                      <>
-                        <p className="text-sm font-semibold text-slate-800">{deliveryProviderName}</p>
-                        {deliveryProviderPhone && (
-                          <p className="text-xs text-slate-600">Phone: {deliveryProviderPhone}</p>
-                        )}
-                        {deliveryProviderManagerPhone && (
-                          <p className="text-xs text-slate-600">Manager: {deliveryProviderManagerPhone}</p>
-                        )}
-                        <span
-                          className={`mt-2 inline-flex px-2 py-1 rounded-full text-[11px] font-medium ${                            deliveryProviderManaged ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'                          }`}
-                        >
-                          {deliveryProviderManaged ? 'Managed Provider' : 'Unmanaged Provider'}
-                        </span>
-                      </>
-                    ) : (
-                      <p className="text-xs text-slate-500">Select a delivery provider to view details.</p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="border-t border-slate-200 pt-6">
-              <h3 className="text-lg font-semibold text-slate-800 mb-4">Client Information</h3>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Select Existing Client</label>
-                  <select
-                    value={clientId}
-                    onChange={(e) => handleClientSelect(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">-- New Client --</option>
-                    {clients.map((client) => (
-                      <option key={client.id} value={client.id}>
-                        {client.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Client Name *</label>
-                  <input
-                    type="text"
-                    value={clientName}
-                    onChange={(e) => setClientName(e.target.value)}
-                    required
-                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
-                  <input
-                    type="email"
-                    value={clientEmail}
-                    onChange={(e) => setClientEmail(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Phone</label>
-                  <input
-                    type="tel"
-                    value={clientPhone}
-                    onChange={(e) => setClientPhone(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">TRN</label>
-                  <input
-                    type="text"
-                    value={clientTrn}
-                    onChange={(e) => setClientTrn(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Emirate</label>
-                  <select
-                    value={clientEmirate}
-                    onChange={(e) => setClientEmirate(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                  >
-                    <option value="">Select Emirate</option>
-                    {emirateOptions.map((emirate) => (
-                      <option key={emirate} value={emirate}>
-                        {emirate}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Address</label>
-                  <textarea
-                    value={clientAddress}
-                    onChange={(e) => setClientAddress(e.target.value)}
-                    rows={2}
-                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="border-t border-slate-200 pt-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-slate-800">Items</h3>
-                <button
-                  type="button"
-                  onClick={addItem}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Item
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {items.map((item) => (
-                  <div key={item.id} className="flex gap-3 items-start bg-slate-50 p-4 rounded-lg">
-                    <div className="flex-1">
-                      {!isLiveShowQuotation && (
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-xs text-slate-600">Sell by:</span>
-                          <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
-                            <button
-                              type="button"
-                              onClick={() => updateItem(item.id, 'sell_by', 'unit')}
-                              className={`px-3 py-1 text-xs ${item.sell_by === 'unit' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
-                            >
-                              Unit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => updateItem(item.id, 'sell_by', 'weight')}
-                              className={`px-3 py-1 text-xs ${item.sell_by === 'weight' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
-                            >
-                              Weight
-                            </button>
-                          </div>
-                          {item.sell_by === 'weight' && (
-                            <div className="flex items-center gap-2 ml-2">
-                              <button
-                                type="button"
-                                onClick={() => updateItem(item.id, 'weight', 0.5)}
-                                className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
-                              >
-                                0.5 kg
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => updateItem(item.id, 'weight', 1)}
-                                className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
-                              >
-                                1 kg
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-                      <div className="md:col-span-5">
-                        <input
-                          type="text"
-                          placeholder="Description"
-                          value={item.description}
-                          onChange={(e) => updateItem(item.id, 'description', e.target.value)}
-                          required
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                      </div>
-                      <div className="md:col-span-2">
-                        <input
-                          type="number"
-                          placeholder="Qty"
-                          value={item.quantity}
-                          onChange={(e) => updateItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                          min="0"
-                          step="0.01"
-                          required={item.sell_by === 'unit'}
-                          disabled={!isLiveShowQuotation && item.sell_by === 'weight'}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                      </div>
-                      {!isLiveShowQuotation && (
-                        <div className="md:col-span-2">
-                          <input
-                            type="number"
-                            placeholder="Weight"
-                            value={item.weight}
-                            onChange={(e) => updateItem(item.id, 'weight', parseFloat(e.target.value) || 0)}
-                            min="0"
-                            step="0.01"
-                            required={item.sell_by === 'weight'}
-                            disabled={item.sell_by === 'unit'}
-                            className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          />
-                        </div>
-                      )}
-                      <div className="md:col-span-2">
-                        <input
-                          type="number"
-                          placeholder={!isLiveShowQuotation && item.sell_by === 'weight' ? 'Price per kg' : 'Unit price'}
-                          value={item.unit_price}
-                          onChange={(e) => updateItem(item.id, 'unit_price', parseFloat(e.target.value) || 0)}
-                          min="0"
-                          step="0.000001"
-                          required
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                      </div>
-                      <div className="md:col-span-3">
-                        <input
-                          type="text"
-                          value={item.amount.toFixed(2)}
-                          disabled
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white text-slate-600"
-                        />
-                      </div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeItem(item.id)}
-                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <ItemsSection
+              items={items}
+              isLiveShowQuotation={isLiveShowQuotation}
+              onAddItem={addItem}
+              onUpdateItem={updateItem}
+              onRemoveItem={removeItem}
+            />
 
             <div className="border-t border-slate-200 pt-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Notes</label>
-                    <textarea
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      rows={3}
-                      className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Terms & Conditions</label>
-                    <textarea
-                      value={terms}
-                      onChange={(e) => setTerms(e.target.value)}
-                      rows={3}
-                      className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                </div>
-
-                <div className="bg-slate-50 rounded-lg p-6 h-fit">
-                  <h3 className="text-lg font-semibold text-slate-800 mb-4">Summary</h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between text-slate-700">
-                      <span>Subtotal:</span>
-                      <span className="font-medium">{subtotal.toFixed(2)}</span>
-                    </div>
-                  <div className="flex justify-between text-slate-700">
-                    <span>Tax ({companySettings?.tax_rate || 0}%):</span>
-                    <span className="font-medium">{taxAmount.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-slate-700">
-                    <span>Discount:</span>
-                    <input
-                      type="number"
-                      value={discount}
-                      onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
-                      min="0"
-                      step="0.01"
-                      className="w-24 px-3 py-1 border border-slate-200 rounded-lg text-right focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                  {(documentType === 'invoice' || documentType === 'delivery_note') && (
-                    <div className="flex justify-between text-slate-700">
-                      <span>Payment Method:</span>
-                      <span className="font-medium">{getPaymentMethodLabel(paymentMethod)}</span>
-                    </div>
-                  )}
-                  {documentType === 'invoice' && (
-                    <>
-                      <div className="flex justify-between text-slate-700">
-                        <span>Card Amount:</span>
-                        <span className="font-medium">{paymentCardAmount.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-slate-700">
-                        <span>Cash Amount:</span>
-                        <span className="font-medium">{paymentCashAmount.toFixed(2)}</span>
-                      </div>
-                    </>
-                  )}
-                  {documentType === 'delivery_note' && (
-                    <>
-                      <div className="flex justify-between text-slate-700">
-                        <span>COD Amount:</span>
-                        <span className="font-medium">{paymentCashAmount.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-slate-700">
-                        <span>Delivery Fee (ref):</span>
-                        <span className="font-medium">{deliveryFee.toFixed(2)}</span>
-                      </div>
-                    </>
-                  )}
-                  <div className="border-t border-slate-300 pt-3 flex justify-between text-lg font-bold text-slate-800">
-                    <span>Total:</span>
-                    <span>{total.toFixed(2)}</span>
-                  </div>
-                </div>
-                </div>
+                <NotesTermsSection
+                  notes={notes}
+                  onNotesChange={setNotes}
+                  terms={terms}
+                  onTermsChange={setTerms}
+                />
+                <SummaryPanel
+                  subtotal={subtotal}
+                  taxRate={Number(companySettings?.tax_rate || 0)}
+                  taxAmount={taxAmount}
+                  discount={discount}
+                  onDiscountChange={setDiscount}
+                  total={total}
+                  documentType={documentType}
+                  paymentMethodLabel={getPaymentMethodLabel(paymentMethod)}
+                  paymentCardAmount={paymentCardAmount}
+                  paymentCashAmount={paymentCashAmount}
+                  deliveryFee={deliveryFee}
+                />
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-6">
-              <button
-                type="button"
-                onClick={onBack}
-                className="px-6 py-3 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                onClick={() => setSubmitAction('saveAndPrint')}
-                className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Printer className="w-5 h-5" />
-                {loading && submitAction === 'saveAndPrint' ? 'Saving...' : 'Save & Print'}
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                onClick={() => setSubmitAction('save')}
-                className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Save className="w-5 h-5" />
-                {loading && submitAction === 'save' ? 'Saving...' : 'Save Document'}
-              </button>
-            </div>
+            <FormActions
+              loading={loading}
+              submitAction={submitAction}
+              onCancel={onBack}
+              onSaveAction={() => setSubmitAction('save')}
+              onSaveAndPrintAction={() => setSubmitAction('saveAndPrint')}
+            />
           </form>
         </div>
       </div>
