@@ -1,50 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Search, Plus, Trash2, User, MapPin, Phone, Home, Package, Truck, Store, X, Timer } from 'lucide-react';
 import { supabaseHelpers, CompanySettings, Item, DeliveryProvider as DBDeliveryProvider, LiveShow, LiveShowPayment, LiveShowQuotation } from '../lib/supabaseHelpers';
 import { generateDocumentNumber } from '../lib/documentHelpers';
 import { DELIVERY_PROVIDERS } from '../data/deliveryProviders';
+import { CartItem, Customer, Product } from './POS mode/posTypes';
+import { POSModeHeader } from './POS mode/POSModeHeader';
+import { ProductEntryPanel } from './POS mode/ProductEntryPanel';
+import { LiveShowForm } from './POS mode/LiveShowForm';
+import { LiveShowTable } from './POS mode/LiveShowTable';
+import { CartItemsList } from './POS mode/CartItemsList';
+import { TotalsSummary } from './POS mode/TotalsSummary';
+import { PaymentDeliverySection } from './POS mode/PaymentDeliverySection';
+import { CustomerDetailsSection } from './POS mode/CustomerDetailsSection';
+import { SavingOverlay } from './POS mode/SavingOverlay';
+import { CustomerModal } from './POS mode/CustomerModal';
+import { PaymentModal } from './POS mode/PaymentModal';
+import { CombinedReceiptModal } from './POS mode/CombinedReceiptModal';
+import { ProviderPricingModal } from './POS mode/ProviderPricingModal';
 
 type POSModeProps = {
   onBack: () => void;
   onOrderSaved?: (documentId: string, options?: { print?: boolean }) => void;
   onOpenKitchen?: () => void;
 };
-
-type Product = {
-  id: string;
-  name: string;
-  sku?: string;
-  price: number;
-  sell_by?: 'unit' | 'weight';
-};
-
-type CartItem = {
-  id: string;
-  name: string;
-  unitPrice: number;
-  quantity: number;
-  weight?: number;
-  sell_by?: 'unit' | 'weight';
-  itemId?: string;
-};
-
-type Customer = {
-  id?: string;
-  name: string;
-  phone: string;
-  address?: string;
-  emirate?: string;
-};
-
-  const EMIRATES = [
-  'Abu Dhabi',
-  'Dubai',
-  'Sharjah',
-  'Ajman',
-  'Umm Al Quwain',
-  'Ras Al Khaimah',
-  'Fujairah',
-];
 
 export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSModeProps) {
   const [mode, setMode] = useState<'in_store' | 'delivery' | 'live_show'>('in_store');
@@ -1058,68 +1035,13 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <div className="max-w-7xl mx-auto p-6">
-        <header className="mb-6">
-          <div className="flex items-center gap-3">
-            {userRole === 'sales' ? (
-              <button
-                onClick={() => onOpenKitchen && onOpenKitchen()}
-                className="inline-flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg shadow-sm hover:bg-teal-700"
-                title="Go to Kitchen"
-              >
-                <Timer className="w-4 h-4" />
-                Kitchen
-              </button>
-            ) : (
-              <button
-                onClick={onBack}
-                className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back
-              </button>
-            )}
-            <h1 className="text-2xl font-bold text-slate-800">POS Mode</h1>
-          </div>
-          <nav className="mt-3" aria-label="POS navigation">
-            <div className="bg-slate-100 border border-slate-200 rounded-lg p-1.5 overflow-x-auto">
-              <div className="flex items-center gap-2 whitespace-nowrap">
-                <button
-                  onClick={() => setMode('in_store')}
-                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium ${
-                    mode === 'in_store'
-                      ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
-                      : 'bg-transparent text-slate-700 hover:bg-white/60 border border-transparent'
-                  }`}
-                  aria-current={mode === 'in_store' ? 'page' : undefined}
-                >
-                  <Store className="w-3.5 h-3.5" /> In-Store Sale
-                </button>
-                <button
-                  onClick={() => setMode('delivery')}
-                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium ${
-                    mode === 'delivery'
-                      ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
-                      : 'bg-transparent text-slate-700 hover:bg-white/60 border border-transparent'
-                  }`}
-                  aria-current={mode === 'delivery' ? 'page' : undefined}
-                >
-                  <Truck className="w-3.5 h-3.5" /> Delivery Sale
-                </button>
-                <button
-                  onClick={() => setMode('live_show')}
-                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium ${
-                    mode === 'live_show'
-                      ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
-                      : 'bg-transparent text-slate-700 hover:bg-white/60 border border-transparent'
-                  }`}
-                  aria-current={mode === 'live_show' ? 'page' : undefined}
-                >
-                  <Timer className="w-3.5 h-3.5" /> Live Show
-                </button>
-              </div>
-            </div>
-          </nav>
-        </header>
+        <POSModeHeader
+          mode={mode}
+          onModeChange={setMode}
+          onBack={onBack}
+          onOpenKitchen={onOpenKitchen}
+          userRole={userRole}
+        />
 
         {error && (
           <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>
@@ -1131,373 +1053,56 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
             <h2 className="text-lg font-semibold text-slate-800 mb-4">{mode === 'live_show' ? 'Live Show Details' : 'Product Entry'}</h2>
 
             {mode === 'live_show' ? (
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Item Name</label>
-                    <input
-                      type="text"
-                      value={lsItemName}
-                      onChange={(e) => setLsItemName(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">KG</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={lsKg}
-                      onChange={(e) => {
-                        const v = parseFloat(e.target.value);
-                        setLsKg(Number.isFinite(v) ? v : 0);
-                      }}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">People Count</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={lsPeopleCount}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value);
-                        setLsPeopleCount(Number.isFinite(v) ? v : 0);
-                      }}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Date</label>
-                    <input
-                      type="date"
-                      value={lsDate}
-                      onChange={(e) => setLsDate(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Time</label>
-                    <input
-                      type="time"
-                      value={lsTime}
-                      onChange={(e) => setLsTime(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Location</label>
-                    <input
-                      type="text"
-                      value={lsLocation}
-                      onChange={(e) => setLsLocation(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Notes</label>
-                  <textarea
-                    rows={3}
-                    value={lsNotes}
-                    onChange={(e) => setLsNotes(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Estimated Total</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={estimatedTotal}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      setEstimatedTotal(Number.isFinite(v) ? v : 0);
-                    }}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">Company tax rate applies.</p>
-                </div>
-
-                {/* Existing Live Shows table for multi-stage flow */}
-                <div className="border-t border-slate-200 pt-4 mt-4">
-                  <div className="flex items-center justify-between mb-2 gap-2">
-                    <h3 className="text-sm font-semibold text-slate-700">Existing Live Shows</h3>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={openCombinedReceiptModal}
-                        className="text-xs px-3 py-1 bg-slate-800 text-white rounded hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
-                        disabled={selectedLiveShows.length < 2 || hasMixedClients || combinedBalance <= 0}
-                        title="Generate one receipt for selected live shows (same customer)"
-                      >
-                        Combined Receipt
-                      </button>
-                      <button
-                        onClick={async () => {
-                          // Manual refresh
-                          await loadLiveShowsPage();
-                        }}
-                        className="text-xs px-2 py-1 border border-slate-200 rounded hover:bg-slate-50"
-                      >
-                        Refresh
-                      </button>
-                    </div>
-                  </div>
-                  {liveShowsLoading ? (
-                    <div className="text-sm text-slate-500">Loading live shows…</div>
-                  ) : liveShows.length === 0 ? (
-                    <div className="text-sm text-slate-500">No live shows yet</div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
-                        <thead className="bg-slate-50 text-slate-700">
-                          <tr>
-                            <th className="text-left px-3 py-2 border-b w-10">
-                              <input
-                                type="checkbox"
-                                className="rounded border-slate-300"
-                                checked={liveShows.length > 0 && liveShows.every((s) => selectedLiveShowIds.includes(s.id))}
-                                onChange={() => toggleSelectAllLiveShows(true)}
-                              />
-                            </th>
-                            <th className="text-left px-3 py-2 border-b">ID</th>
-                            <th className="text-left px-3 py-2 border-b">Show #</th>
-                            <th className="text-left px-3 py-2 border-b">Date</th>
-                            <th className="text-left px-3 py-2 border-b">Time</th>
-                            <th className="text-left px-3 py-2 border-b">Location</th>
-                            <th className="text-left px-3 py-2 border-b">Status</th>
-                            <th className="text-right px-3 py-2 border-b">Estimated</th>
-                            <th className="text-right px-3 py-2 border-b">Advance Paid</th>
-                            <th className="text-right px-3 py-2 border-b">Full Paid</th>
-                            <th className="text-right px-3 py-2 border-b">Balance</th>
-                            <th className="text-left px-3 py-2 border-b">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="text-slate-800">
-                          {liveShows.map((s) => {
-                            const payments = paymentsMap[s.id] || [];
-                            const qs = quotationsMap[s.id] || [];
-                            const estimated = Math.max(0, Number(qs[0]?.total_estimated || 0));
-                            const adv = sumPayments(payments, 'advance');
-                            const full = sumPayments(payments, 'full');
-                            const balance = Math.max(0, estimated - (adv + full));
-                            return (
-                              <tr key={s.id} className="border-b last:border-b-0">
-                                <td className="px-3 py-2 text-center">
-                                  <input
-                                    type="checkbox"
-                                    className="rounded border-slate-300"
-                                    checked={selectedLiveShowIds.includes(s.id)}
-                                    onChange={() => toggleLiveShowSelection(s.id)}
-                                  />
-                                </td>
-                                <td className="px-3 py-2 text-xs text-slate-500">{s.id}</td>
-                                <td className="px-3 py-2 font-medium">{s.show_number}</td>
-                                <td className="px-3 py-2">{s.show_date || '—'}</td>
-                                <td className="px-3 py-2">{s.show_time || '—'}</td>
-                                <td className="px-3 py-2">{s.location}</td>
-                                <td className="px-3 py-2">
-                                  <span className={`px-2 py-1 rounded-full text-[11px] font-medium ${
-                                    s.status === 'quotation' ? 'bg-yellow-100 text-yellow-700' :
-                                    s.status === 'advanced_paid' ? 'bg-blue-100 text-blue-700' :
-                                    s.status === 'fully_paid' ? 'bg-emerald-100 text-emerald-700' :
-                                    'bg-slate-200 text-slate-700'
-                                  }`}>{s.status.replace('_', ' ')}</span>
-                                </td>
-                                <td className="px-3 py-2 text-right">{estimated.toFixed(2)}</td>
-                                <td className="px-3 py-2 text-right">{adv.toFixed(2)}</td>
-                                <td className="px-3 py-2 text-right">{full.toFixed(2)}</td>
-                                <td className="px-3 py-2 text-right font-semibold">{balance.toFixed(2)}</td>
-                                <td className="px-3 py-2">
-                                  <div className="flex items-center gap-2">
-                                    {s.status === 'quotation' && (
-                                      <button
-                                        onClick={() => openPaymentModal(s, 'advance')}
-                                        className="text-xs px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-                                      >
-                                        Record Advance
-                                      </button>
-                                    )}
-                                    {s.status === 'advanced_paid' && (
-                                      <button
-                                        onClick={() => openPaymentModal(s, 'full')}
-                                        className="text-xs px-3 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700"
-                                      >
-                                        Record Full Payment
-                                      </button>
-                                    )}
-                                    {s.status === 'fully_paid' && (
-                                      <span className="text-xs text-emerald-700">Completed</span>
-                                    )}
-                                    <button
-                                      onClick={() => handleDeleteLiveShow(s.id)}
-                                      className="text-xs px-2 py-1 border border-red-200 text-red-700 rounded hover:bg-red-50 inline-flex items-center gap-1"
-                                      title="Delete Live Show"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" /> Delete
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                      {(() => {
-                        const totalPages = Math.max(1, Math.ceil(lsTotal / LS_PAGE_SIZE));
-                        return (
-                          <div className="flex items-center justify-between px-2 py-2 border border-t-0 border-slate-200 rounded-b-lg bg-slate-50">
-                            <div className="text-xs text-slate-600">Page {lsPage} of {totalPages} — {lsTotal} total</div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => setLsPage((p) => Math.max(1, p - 1))}
-                                disabled={lsPage <= 1}
-                                className={`text-xs px-2 py-1 rounded border ${lsPage <= 1 ? 'border-slate-200 text-slate-300 cursor-not-allowed' : 'border-slate-200 text-slate-700 hover:bg-white'}`}
-                              >
-                                Prev
-                              </button>
-                              <button
-                                onClick={() => setLsPage((p) => Math.min(totalPages, p + 1))}
-                                disabled={lsPage >= totalPages}
-                                className={`text-xs px-2 py-1 rounded border ${lsPage >= totalPages ? 'border-slate-200 text-slate-300 cursor-not-allowed' : 'border-slate-200 text-slate-700 hover:bg-white'}`}
-                              >
-                                Next
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
               <>
-                <div className="relative mb-4">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                  <input
-                    type="text"
-                    placeholder="Search items by name or SKU"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
-                  {filteredProducts.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => addToCart(p)}
-                      className="text-left p-4 border border-slate-200 rounded-lg hover:bg-slate-50 flex items-center justify-between"
-                    >
-                      <div>
-                        <p className="font-medium text-slate-800">{p.name}</p>
-                        {p.sku && <p className="text-xs text-slate-500">SKU: {p.sku}</p>}
-                      </div>
-                      <span className="text-slate-700">{p.price.toFixed(2)}</span>
-                    </button>
-                  ))}
-                  {filteredProducts.length === 0 && (
-                    <div className="text-sm text-slate-500">No items found</div>
-                  )}
-                </div>
-
-                <div className="border-t border-slate-200 pt-4">
-                  <h3 className="text-sm font-semibold text-slate-700 mb-2">Quick Add Custom Item</h3>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs text-slate-600">Sell by:</span>
-                    <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => setCustomSellBy('unit')}
-                        className={`px-3 py-1 text-xs ${customSellBy === 'unit' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
-                      >
-                        Unit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCustomSellBy('weight')}
-                        className={`px-3 py-1 text-xs ${customSellBy === 'weight' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
-                      >
-                        Weight
-                      </button>
-                    </div>
-                    {customSellBy === 'weight' && (
-                      <div className="flex items-center gap-2 ml-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const el = document.getElementById('pos-custom-weight') as HTMLInputElement;
-                            if (el) el.value = '0.5';
-                          }}
-                          className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
-                        >
-                          0.5 kg
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const el = document.getElementById('pos-custom-weight') as HTMLInputElement;
-                            if (el) el.value = '1';
-                          }}
-                          className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
-                        >
-                          1 kg
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <input
-                      id="pos-custom-name"
-                      type="text"
-                      placeholder="Item description"
-                      className="px-3 py-2 border border-slate-200 rounded-lg"
-                    />
-                    <input
-                      id="pos-custom-price"
-                      type="number"
-                      placeholder={customSellBy === 'weight' ? 'Price per kg' : 'Unit price'}
-                      className="px-3 py-2 border border-slate-200 rounded-lg"
-                    />
-                    <div className="flex flex-col">
-                      <label htmlFor="pos-custom-qty" className="text-[10px] font-medium text-slate-600 mb-1">Quantity</label>
-                      <input
-                        id="pos-custom-qty"
-                        type="number"
-                        placeholder="Qty"
-                        className="px-3 py-2 border border-slate-200 rounded-lg"
-                      />
-                    </div>
-                    <div className="flex flex-col">
-                      <label htmlFor="pos-custom-weight" className="text-[10px] font-medium text-slate-600 mb-1">Weight</label>
-                      <input
-                        id="pos-custom-weight"
-                        type="number"
-                        placeholder="kg"
-                        disabled={customSellBy === 'unit'}
-                        className="px-3 py-2 border border-slate-200 rounded-lg"
-                      />
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const name = (document.getElementById('pos-custom-name') as HTMLInputElement)?.value || '';
-                      const price = (document.getElementById('pos-custom-price') as HTMLInputElement)?.value || '';
-                      const qty = (document.getElementById('pos-custom-qty') as HTMLInputElement)?.value || '';
-                      const weight = (document.getElementById('pos-custom-weight') as HTMLInputElement)?.value || '';
-                      addCustomItem(name, price, qty, weight);
-                    }}
-                    className="mt-3 inline-flex items-center gap-2 px-3 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900"
-                  >
-                    <Plus className="w-4 h-4" /> Add to Cart
-                  </button>
-                </div>
+                <LiveShowForm
+                  lsItemName={lsItemName}
+                  onLsItemNameChange={setLsItemName}
+                  lsKg={lsKg}
+                  onLsKgChange={setLsKg}
+                  lsPeopleCount={lsPeopleCount}
+                  onLsPeopleCountChange={setLsPeopleCount}
+                  lsDate={lsDate}
+                  onLsDateChange={setLsDate}
+                  lsTime={lsTime}
+                  onLsTimeChange={setLsTime}
+                  lsLocation={lsLocation}
+                  onLsLocationChange={setLsLocation}
+                  lsNotes={lsNotes}
+                  onLsNotesChange={setLsNotes}
+                  estimatedTotal={estimatedTotal}
+                  onEstimatedTotalChange={setEstimatedTotal}
+                />
+                <LiveShowTable
+                  liveShows={liveShows}
+                  liveShowsLoading={liveShowsLoading}
+                  paymentsMap={paymentsMap}
+                  quotationsMap={quotationsMap}
+                  selectedLiveShowIds={selectedLiveShowIds}
+                  onToggleSelectAll={toggleSelectAllLiveShows}
+                  onToggleSelection={toggleLiveShowSelection}
+                  onOpenPaymentModal={openPaymentModal}
+                  onDelete={handleDeleteLiveShow}
+                  onRefresh={loadLiveShowsPage}
+                  lsPage={lsPage}
+                  lsTotal={lsTotal}
+                  pageSize={LS_PAGE_SIZE}
+                  onPageChange={setLsPage}
+                  onOpenCombinedReceipt={openCombinedReceiptModal}
+                  combinedBalance={combinedBalance}
+                  hasMixedClients={hasMixedClients}
+                  selectedCount={selectedLiveShows.length}
+                />
               </>
+            ) : (
+              <ProductEntryPanel
+                searchTerm={searchTerm}
+                onSearchTermChange={setSearchTerm}
+                filteredProducts={filteredProducts}
+                onAddToCart={addToCart}
+                customSellBy={customSellBy}
+                onCustomSellByChange={setCustomSellBy}
+                onAddCustomItem={addCustomItem}
+              />
             )}
           </div>
 
@@ -1505,704 +1110,122 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
           <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
             <h2 className="text-lg font-semibold text-slate-800 mb-4">Order Cart</h2>
 
-            <div className="space-y-3 mb-4">
-              {cart.map((item) => (
-                <div key={item.id} className="flex items-center justify-between gap-3 border border-slate-200 rounded-lg p-3">
-                  <div>
-                    <p className="font-medium text-slate-800">{item.name}</p>
-                    <p className="text-xs text-slate-500">{item.unitPrice.toFixed(2)} {item.sell_by === 'weight' ? 'per kg' : 'each'}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {!item.itemId ? (
-                      <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
-                        <button
-                          type="button"
-                          onClick={() => updateSellBy(item.id, 'unit')}
-                          className={`px-2 py-1 text-xs ${item.sell_by === 'unit' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
-                        >
-                          Unit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateSellBy(item.id, 'weight')}
-                          className={`px-2 py-1 text-xs ${item.sell_by === 'weight' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
-                        >
-                          Weight
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="px-2 py-1 text-xs rounded border border-slate-200 text-slate-700">
-                        {item.sell_by === 'weight' ? 'Weight' : 'Unit'}
-                      </span>
-                    )}
-                    {item.sell_by === 'weight' && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => updateWeight(item.id, 0.5)}
-                          className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
-                        >
-                          0.5 kg
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateWeight(item.id, 1)}
-                          className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
-                        >
-                          1 kg
-                        </button>
-                      </>
-                    )}
-                    <div className="flex flex-col items-start">
-                      <label className="text-[10px] font-medium text-slate-600 mb-1">Quantity</label>
-                      <input
-                        type="number"
-                        min={1}
-                        value={item.quantity}
-                        onChange={(e) => updateQuantity(item.id, Number(e.target.value))}
-                        className="w-20 px-3 py-2 border border-slate-200 rounded-lg"
-                      />
-                    </div>
-                    <div className="flex flex-col items-start">
-                      <label className="text-[10px] font-medium text-slate-600 mb-1">Weight</label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={item.weight ?? 0}
-                        onChange={(e) => updateWeight(item.id, Number(e.target.value))}
-                        className="w-24 px-3 py-2 border border-slate-200 rounded-lg"
-                        disabled={item.sell_by === 'unit'}
-                        placeholder="kg"
-                      />
-                    </div>
-                    <button
-                      onClick={() => removeItem(item.id)}
-                      className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50"
-                      title="Remove"
-                    >
-                      <Trash2 className="w-4 h-4 text-slate-700" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {cart.length === 0 && <div className="text-sm text-slate-500">No items in cart</div>}
-            </div>
+            <CartItemsList
+              cart={cart}
+              onUpdateQuantity={updateQuantity}
+              onUpdateWeight={updateWeight}
+              onUpdateSellBy={updateSellBy}
+              onRemoveItem={removeItem}
+            />
 
-            <div className="flex items-center justify-between border-t border-slate-200 pt-4">
-              <p className="text-slate-600 font-medium">Subtotal</p>
-              <p className="text-slate-800 font-bold">{subtotal.toFixed(2)}</p>
-            </div>
-            {discountAmount > 0 && (
-              <div className="flex items-center justify-between text-slate-600 mt-2">
-                <p>
-                  Discount{discountType === 'percentage' ? ` (${Math.max(0, Math.min(Number(discountInput || 0), 100))}% )` : ''}
-                </p>
-                <p>-{discountAmount.toFixed(2)}</p>
-              </div>
-            )}
-            {effectiveTaxRate > 0 && (
-              <div className="flex items-center justify-between text-slate-600 mt-2">
-                <p>Tax ({effectiveTaxRate}% {vatExempt ? ' - VAT Exempt' : ''})</p>
-                <p>{taxAmount.toFixed(2)}</p>
-              </div>
-            )}
-            <div className="mt-2 flex items-center justify-between">
-              <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  className="rounded border-slate-300"
-                  checked={vatExempt}
-                  onChange={(e) => setVatExempt(e.target.checked)}
-                />
-                VAT Exempt this receipt
-              </label>
-              {vatExempt && <span className="text-xs text-amber-600">Tax removed</span>}
-            </div>
-            <div className="flex items-center justify-between text-slate-800 font-semibold mt-2">
-              <p>Total</p>
-              <p>{total.toFixed(2)}</p>
-            </div>
-            {mode !== 'live_show' && (
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-                <div>
-                  <label className="text-sm text-slate-600">Discount Type</label>
-                  <div className="mt-1 inline-flex rounded-lg border border-slate-200 overflow-hidden">
-                    <button
-                      type="button"
-                      className={`px-3 py-1.5 text-sm ${discountType === 'amount' ? 'bg-slate-100 text-slate-800' : 'bg-white text-slate-700'} border-r border-slate-200`}
-                      onClick={() => setDiscountType('amount')}
-                    >
-                      Amount
-                    </button>
-                    <button
-                      type="button"
-                      className={`px-3 py-1.5 text-sm ${discountType === 'percentage' ? 'bg-slate-100 text-slate-800' : 'bg-white text-slate-700'}`}
-                      onClick={() => setDiscountType('percentage')}
-                    >
-                      Percentage
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm text-slate-600">{discountType === 'percentage' ? 'Percentage' : 'Amount'}</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={discountType === 'percentage' ? 100 : undefined}
-                    step={discountType === 'percentage' ? '0.01' : '0.01'}
-                    value={Number.isFinite(discountInput) ? discountInput : 0}
-                    onChange={(e) => setDiscountInput(parseFloat(e.target.value) || 0)}
-                    className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg"
-                    placeholder={discountType === 'percentage' ? 'e.g. 10 for 10%' : 'e.g. 5.00'}
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className="mt-6 px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50"
-                    onClick={() => { setDiscountInput(0); setDiscountType('amount'); }}
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
-            )}
+            <TotalsSummary
+              subtotal={subtotal}
+              discountAmount={discountAmount}
+              discountType={discountType}
+              discountInput={discountInput}
+              effectiveTaxRate={effectiveTaxRate}
+              vatExempt={vatExempt}
+              onVatExemptChange={setVatExempt}
+              taxAmount={taxAmount}
+              total={total}
+              mode={mode}
+              onDiscountTypeChange={setDiscountType}
+              onDiscountInputChange={setDiscountInput}
+              onClearDiscount={() => { setDiscountInput(0); setDiscountType('amount'); }}
+            />
 
-            <div className="border-t border-slate-200 pt-4 mt-4 mb-6">
-              <h3 className="text-sm font-semibold text-slate-700 mb-2">Payment & Delivery</h3>
-              {mode === 'in_store' ? (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">Payment Method</label>
-                      <select
-                        value={paymentMethod}
-                        onChange={(e) => setPaymentMethod(e.target.value as any)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      >
-                        {inStorePaymentOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {paymentMethod === 'both' && (
-                      <div>
-                        <label className="block text-xs font-medium text-slate-600 mb-1">Card Amount</label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={cardPaymentAmount.toFixed(2)}
-                          onChange={(e) => handleCardPaymentAmountChange(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                      </div>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="p-3 border border-slate-200 rounded-lg bg-slate-50">
-                      <p className="text-xs text-slate-500 mb-1">Card Amount</p>
-                      <p className="text-sm font-semibold text-slate-800">{cardAmount.toFixed(2)}</p>
-                    </div>
-                    <div className="p-3 border border-slate-200 rounded-lg bg-slate-50">
-                      <p className="text-xs text-slate-500 mb-1">Cash Amount</p>
-                      <p className="text-sm font-semibold text-slate-800">{cashAmount.toFixed(2)}</p>
-                    </div>
-                  </div>
-                </div>
-              ) : mode === 'delivery' ? (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">Payment Method</label>
-                      <select
-                        value={paymentMethod}
-                        onChange={(e) => setPaymentMethod(e.target.value as any)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      >
-                        {deliveryPaymentOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">Delivery Fee (Reference)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={deliveryFee}
-                        onChange={(e) => {
-                          const parsed = parseFloat(e.target.value);
-                          setDeliveryFee(Number.isFinite(parsed) ? parsed : 0);
-                        }}
-                        disabled={providerManaged}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      {providerManaged && (
-                        <p className="text-xs text-emerald-600 mt-1">Managed provider: delivery fee is exempt.</p>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Delivery Provider</label>
-                    <select
-                      value={selectedProviderId}
-                      onChange={(e) => setSelectedProviderId(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      {providers.map((provider) => (
-                        <option key={provider.id} value={provider.id}>
-                          {provider.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="p-3 border border-slate-200 rounded-lg bg-slate-50">
-                    {selectedProvider ? (
-                      <>
-                        <p className="text-sm font-semibold text-slate-800">{selectedProvider.name}</p>
-                        <p className="text-xs text-slate-500">Phone: {selectedProvider.phone}</p>
-                        <p className="text-xs text-slate-500">Manager: {selectedProvider.managerPhone}</p>
-                        <span
-                          className={`mt-2 inline-flex px-2 py-1 rounded-full text-[11px] font-medium ${
-                            providerManaged ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'
-                          }`}
-                        >
-                          {providerManaged ? 'Managed Provider' : 'Unmanaged Provider'}
-                        </span>
-                        {providerManaged && (
-                          <p className="text-xs text-emerald-600 mt-2">Customer details optional for managed providers.</p>
-                        )}
-                        <div className="mt-3 flex items-center justify-between">
-                          <div className="text-xs text-slate-600">
-                            Provider Pricing: Multiplier {typeof (selectedProvider as any).priceMultiplier !== 'undefined' && (selectedProvider as any).priceMultiplier !== null ? String(Number((selectedProvider as any).priceMultiplier)) : '-'}, Overrides {Array.isArray((selectedProvider as any).priceOverrides) ? (selectedProvider as any).priceOverrides.length : 0}
-                          </div>
-                          <button
-                            onClick={() => setShowPricingModal(true)}
-                            className="px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white hover:bg-slate-50"
-                          >
-                            Edit Item Pricing
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-xs text-slate-500">Select a delivery provider to view details.</p>
-                    )}
-                  </div>
-                  {paymentMethod === 'cod' && (
-                    <div className="p-3 border border-slate-200 rounded-lg bg-slate-50">
-                      <p className="text-xs text-slate-500 mb-1">COD Amount</p>
-                      <p className="text-sm font-semibold text-slate-800">{cashAmount.toFixed(2)}</p>
-                    </div>
-                  )}
-                  {paymentMethod === 'provider' && (
-                    <div className="p-3 border border-slate-200 rounded-lg bg-slate-50">
-                      <p className="text-xs text-slate-500 mb-1">Provider Collect Amount</p>
-                      <p className="text-sm font-semibold text-slate-800">{total.toFixed(2)}</p>
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
+            <PaymentDeliverySection
+              mode={mode}
+              paymentMethod={paymentMethod}
+              onPaymentMethodChange={setPaymentMethod}
+              inStorePaymentOptions={inStorePaymentOptions}
+              deliveryPaymentOptions={deliveryPaymentOptions}
+              cardPaymentAmount={cardPaymentAmount}
+              onCardPaymentAmountChange={handleCardPaymentAmountChange}
+              cardAmount={cardAmount}
+              cashAmount={cashAmount}
+              deliveryFee={deliveryFee}
+              onDeliveryFeeChange={setDeliveryFee}
+              providerManaged={providerManaged}
+              providers={providers}
+              selectedProviderId={selectedProviderId}
+              onProviderChange={setSelectedProviderId}
+              selectedProvider={selectedProvider}
+              onShowPricingModal={() => setShowPricingModal(true)}
+              total={total}
+            />
 
-            <div className="border-t border-slate-200 pt-4">
-              <h3 className="text-sm font-semibold text-slate-700 mb-2">Customer Details</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Customer name"
-                    value={customer.name}
-                    onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
-                    className="w-full pl-9 px-3 py-2 border border-slate-200 rounded-lg"
-                  />
-                </div>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="tel"
-                    placeholder="Phone number"
-                    value={customer.phone}
-                    onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
-                    className="w-full pl-9 px-3 py-2 border border-slate-200 rounded-lg"
-                  />
-                </div>
-              </div>
+            <CustomerDetailsSection
+              customer={customer}
+              onCustomerChange={setCustomer}
+              mode={mode}
+              orderDate={orderDate}
+              onOrderDateChange={setOrderDate}
+              onOpenCustomerModal={openCustomerModal}
+              onConfirmOrder={handleConfirmOrder}
+              saving={saving}
+            />
 
-              {mode === 'delivery' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                  <div className="relative">
-                    <Home className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Delivery address"
-                      value={customer.address}
-                      onChange={(e) => setCustomer({ ...customer, address: e.target.value })}
-                      className="w-full pl-9 px-3 py-2 border border-slate-200 rounded-lg"
-                    />
-                  </div>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <select
-                      value={customer.emirate}
-                      onChange={(e) => setCustomer({ ...customer, emirate: e.target.value })}
-                      className="w-full pl-9 px-3 py-2 border border-slate-200 rounded-lg"
-                    >
-                      <option value="">Select Emirate</option>
-                      {EMIRATES.map((e) => (
-                        <option key={e} value={e}>{e}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {mode !== 'live_show' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Order Date</label>
-                    <input
-                      type="date"
-                      value={orderDate}
-                      onChange={(e) => setOrderDate(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                    />
-                    <p className="text-xs text-slate-500 mt-1">Defaults to today; used as issue date.</p>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={openCustomerModal}
-                  className="inline-flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50"
-                >
-                  <User className="w-4 h-4" /> Select Existing Customer
-                </button>
-                <button
-                  onClick={handleConfirmOrder}
-                  disabled={saving}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Package className="w-4 h-4" /> {saving ? 'Processing...' : (mode === 'live_show' ? 'Create Quotation' : 'Confirm Order')}
-                </button>
-              </div>
-
-              {/* Saving Overlay */}
-              {saving && (
-                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-                  <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6 w-[90vw] max-w-sm text-center">
-                    <div className="animate-spin h-6 w-6 border-2 border-emerald-600 border-t-transparent rounded-full mx-auto mb-3"></div>
-                    <div className="text-slate-800 font-semibold mb-1">Saving order...</div>
-                    <div className="text-slate-600 text-sm">Please wait, this may take a moment.</div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <SavingOverlay saving={saving} />
           </div>
         </div>
 
-        {/* Customer Modal */}
-        {showCustomerModal && (
-          <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-            <div className="bg-white w-[90vw] max-w-2xl rounded-xl shadow-lg border border-slate-200 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold">Select Customer</h3>
-                <button onClick={() => setShowCustomerModal(false)} className="p-2 hover:bg-slate-50 rounded-lg">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              {clientsLoading ? (
-                <div className="p-6 text-center text-slate-500">Loading customers...</div>
-              ) : (
-                <div className="max-h-80 overflow-auto divide-y divide-slate-200">
-                  {existingClients.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => selectExistingClient(c)}
-                      className="w-full text-left p-3 hover:bg-slate-50"
-                    >
-                      <p className="font-medium text-slate-800">{c.name || 'Unnamed'}</p>
-                      <p className="text-xs text-slate-500">{c.phone || 'No phone'}</p>
-                    </button>
-                  ))}
-                  {existingClients.length === 0 && (
-                    <div className="p-6 text-center text-slate-500">No customers found</div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        <CustomerModal
+          show={showCustomerModal}
+          onClose={() => setShowCustomerModal(false)}
+          clientsLoading={clientsLoading}
+          existingClients={existingClients}
+          onSelectClient={selectExistingClient}
+        />
 
-        {/* Live Show Payment Modal */}
-        {showPaymentModal && selectedShowForPayment && (
-          <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-            <div className="bg-white w-[90vw] max-w-md rounded-xl shadow-lg border border-slate-200 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold">
-                  {paymentType === 'advance' ? 'Record Advance Payment' : 'Record Full Payment'}
-                </h3>
-                <button onClick={() => setShowPaymentModal(false)} className="p-2 hover:bg-slate-50 rounded-lg">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="text-sm text-slate-600 mb-3">
-                <p className="mb-1"><span className="font-semibold">Live Show:</span> {selectedShowForPayment.show_number}</p>
-                <p className="mb-1"><span className="font-semibold">Date:</span> {selectedShowForPayment.show_date || 'N/A'} at {selectedShowForPayment.show_time || 'N/A'}</p>
-                <p><span className="font-semibold">Location:</span> {selectedShowForPayment.location}</p>
-              </div>
-              {paymentSummary && (
-                <div className="grid grid-cols-2 gap-2 mb-3 text-sm">
-                  <div className="p-2 bg-slate-50 border border-slate-200 rounded">
-                    <div className="text-[11px] text-slate-500">Advance Paid</div>
-                    <div className="font-semibold text-slate-800">{paymentSummary.advancePaid.toFixed(2)}</div>
-                  </div>
-                  <div className="p-2 bg-slate-50 border border-slate-200 rounded">
-                    <div className="text-[11px] text-slate-500">Full Paid</div>
-                    <div className="font-semibold text-slate-800">{paymentSummary.fullPaid.toFixed(2)}</div>
-                  </div>
-                  <div className="p-2 bg-slate-50 border border-slate-200 rounded">
-                    <div className="text-[11px] text-slate-500">Estimated</div>
-                    <div className="font-semibold text-slate-800">{paymentSummary.estimated.toFixed(2)}</div>
-                  </div>
-                  <div className="p-2 bg-slate-50 border border-slate-200 rounded">
-                    <div className="text-[11px] text-slate-500">Balance</div>
-                    <div className="font-semibold text-slate-800">{paymentSummary.balance.toFixed(2)}</div>
-                  </div>
-                </div>
-              )}
-              {paymentType === 'advance' && paymentSummary && paymentSummary.balance > 0 && (
-                <div className="mb-3 text-xs text-slate-600 flex items-center justify-between gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
-                  <span>Customer paying full now? Skip advance and record full payment.</span>
-                  <button
-                    onClick={() => {
-                      setPaymentType('full');
-                      setPaymentAmount(paymentSummary.balance);
-                    }}
-                    className="text-xs font-semibold text-amber-800 underline"
-                  >
-                    Switch to Full
-                  </button>
-                </div>
-              )}
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Amount</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(parseFloat(e.target.value) || 0)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Payment Method</label>
-                  <select
-                    value={paymentMethodLS}
-                    onChange={(e) => setPaymentMethodLS(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                  >
-                    <option value="cash">Cash</option>
-                    <option value="transfer">Bank Transfer</option>
-                  </select>
-                </div>
-                <div className="flex items-center justify-end gap-2 pt-2">
-                  <button
-                    onClick={() => setShowPaymentModal(false)}
-                    className="px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={submitLiveShowPayment}
-                    className="px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
-                  >
-                    Save & Print Receipt
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <PaymentModal
+          show={showPaymentModal}
+          onClose={() => setShowPaymentModal(false)}
+          showData={selectedShowForPayment}
+          paymentType={paymentType}
+          onSwitchToFull={() => {
+            setPaymentType('full');
+            if (paymentSummary) setPaymentAmount(paymentSummary.balance);
+          }}
+          paymentSummary={paymentSummary}
+          paymentAmount={paymentAmount}
+          onPaymentAmountChange={setPaymentAmount}
+          paymentMethod={paymentMethodLS}
+          onPaymentMethodChange={setPaymentMethodLS}
+          onSubmit={submitLiveShowPayment}
+        />
 
-        {showCombinedModal && (
-          <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-            <div className="bg-white w-[95vw] max-w-2xl rounded-xl shadow-lg border border-slate-200 p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold">Combined Live Show Receipt</h3>
-                <button onClick={() => setShowCombinedModal(false)} className="p-2 hover:bg-slate-50 rounded-lg">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="mb-3 text-sm text-slate-600">
-                <p className="mb-1">Selected shows (same customer):</p>
-                <div className="max-h-48 overflow-auto border border-slate-200 rounded-lg divide-y divide-slate-200">
-                  {selectedLiveShows.map((s) => {
-                    const totals = getLiveShowTotals(s.id);
-                    return (
-                      <div key={s.id} className="p-3 flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-slate-800">{s.show_number}</p>
-                          <p className="text-xs text-slate-500">{s.show_date || '—'} {s.show_time || ''} • {s.location || 'N/A'}</p>
-                        </div>
-                        <div className="text-right text-sm">
-                          <div className="text-slate-500">Balance</div>
-                          <div className="font-semibold text-slate-800">{totals.balance.toFixed(2)}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {selectedLiveShows.length === 0 && <div className="p-4 text-center text-slate-500">No live shows selected</div>}
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Issue Date</label>
-                  <input
-                    type="date"
-                    value={combinedIssueDate}
-                    onChange={(e) => setCombinedIssueDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Payment Method</label>
-                  <select
-                    value={combinedPaymentMethod}
-                    onChange={(e) => setCombinedPaymentMethod(e.target.value as 'cash' | 'transfer')}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                  >
-                    <option value="cash">Cash</option>
-                    <option value="transfer">Bank Transfer</option>
-                  </select>
-                </div>
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700 md:col-span-2">
-                  <input
-                    type="checkbox"
-                    className="rounded border-slate-300"
-                    checked={combinedVatExempt}
-                    onChange={(e) => setCombinedVatExempt(e.target.checked)}
-                  />
-                  Remove VAT for this receipt
-                </label>
-              </div>
-              <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
-                <div>
-                  <p className="text-xs text-slate-500">Subtotal</p>
-                  <p className="text-base font-semibold text-slate-800">{combinedBalance.toFixed(2)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500">Tax</p>
-                  <p className="text-base font-semibold text-slate-800">
-                    {(combinedBalance * (combinedVatExempt ? 0 : Number(companySettings?.tax_rate || 0)) / 100).toFixed(2)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500">Total</p>
-                  <p className="text-base font-semibold text-slate-800">
-                    {(combinedBalance + (combinedBalance * (combinedVatExempt ? 0 : Number(companySettings?.tax_rate || 0)) / 100)).toFixed(2)}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center justify-end gap-2">
-                <button onClick={() => setShowCombinedModal(false)} className="px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-                <button
-                  onClick={submitCombinedReceipt}
-                  className="px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
-                  disabled={selectedLiveShows.length === 0 || hasMixedClients || combinedBalance <= 0}
-                >
-                  Save & Print Receipt
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <CombinedReceiptModal
+          show={showCombinedModal}
+          onClose={() => setShowCombinedModal(false)}
+          selectedLiveShows={selectedLiveShows}
+          getLiveShowTotals={getLiveShowTotals}
+          combinedIssueDate={combinedIssueDate}
+          onCombinedIssueDateChange={setCombinedIssueDate}
+          combinedPaymentMethod={combinedPaymentMethod}
+          onCombinedPaymentMethodChange={setCombinedPaymentMethod}
+          combinedVatExempt={combinedVatExempt}
+          onCombinedVatExemptChange={setCombinedVatExempt}
+          combinedBalance={combinedBalance}
+          taxRate={Number(companySettings?.tax_rate || 0)}
+          onSubmit={submitCombinedReceipt}
+          hasMixedClients={hasMixedClients}
+        />
 
-        {/* Provider Pricing Editor Modal */}
-        {showPricingModal && selectedProvider && (
-          <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-            <div className="bg-white w-[95vw] max-w-3xl rounded-xl shadow-lg border border-slate-200 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold">Edit Provider Item Pricing</h3>
-                <button onClick={() => setShowPricingModal(false)} className="p-2 hover:bg-slate-50 rounded-lg">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Default Price Multiplier</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={multiplierInput}
-                    onChange={(e) => {
-                      setPricingDirty(true);
-                      setMultiplierInput(e.target.value);
-                    }}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                  />
-                  <p className="text-[11px] text-slate-500 mt-1">Applied to items without explicit override. Leave blank or 0 to disable.</p>
-                </div>
-                <div className="max-h-[45vh] overflow-auto border border-slate-200 rounded-lg">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-slate-50 text-slate-600">
-                      <tr>
-                        <th className="text-left px-3 py-2">Item</th>
-                        <th className="text-left px-3 py-2">SKU</th>
-                        <th className="text-right px-3 py-2">Base Price</th>
-                        <th className="text-right px-3 py-2">Override Price</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {products.map((prod) => (
-                        <tr key={prod.id} className="border-t border-slate-200">
-                          <td className="px-3 py-2 text-slate-800">{prod.name}</td>
-                          <td className="px-3 py-2 text-slate-500">{prod.sku || '-'}</td>
-                          <td className="px-3 py-2 text-right text-slate-700">{Number(prod.price).toFixed(2)}</td>
-                          <td className="px-3 py-2 text-right">
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={pricingForm[prod.id] || ''}
-                              onChange={(e) => handleOverrideChange(prod.id, e.target.value)}
-                              className="w-32 px-2 py-1 border border-slate-200 rounded-lg"
-                            />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="flex items-center justify-end gap-2 pt-2">
-                  <button
-                    onClick={() => setShowPricingModal(false)}
-                    className="px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={saveProviderPricing}
-                    className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
-                    Save Pricing
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <ProviderPricingModal
+          show={showPricingModal}
+          onClose={() => setShowPricingModal(false)}
+          selectedProvider={selectedProvider}
+          products={products}
+          multiplierInput={multiplierInput}
+          onMultiplierChange={(value) => {
+            setPricingDirty(true);
+            setMultiplierInput(value);
+          }}
+          pricingForm={pricingForm}
+          onOverrideChange={handleOverrideChange}
+          onSave={saveProviderPricing}
+        />
       </div>
     </div>
   );
