@@ -278,33 +278,34 @@ async function generateDocumentNumberInternal(type: 'quotation' | 'invoice' | 'd
     String(today.getMonth() + 1).padStart(2, '0'),
     String(today.getDate()).padStart(2, '0'),
   ].join('');
+  const todayPrefix = `${prefix}-${dateStr}`;
   try {
     const { data, error } = await supabase
       .from('documents')
-      .select('document_number, document_type')
-      .eq('document_type', type);
+      .select('document_number')
+      .eq('document_type', type)
+      .like('document_number', `${todayPrefix}%`)
+      .order('document_number', { ascending: false })
+      .limit(10);
     if (error) throw error;
 
-    const docs = (data || []) as Array<{ document_number: string; document_type: string }>;
-    const filtered = docs
-      .filter(
-        (d) =>
-          d.document_number &&
-          d.document_number.startsWith(`${prefix}-${dateStr}`) &&
-          /^\d+$/.test(d.document_number.slice(`${prefix}-${dateStr}`.length))
-      )
-      .sort((a, b) => b.document_number.localeCompare(a.document_number));
+    const docs = (data || []) as Array<{ document_number: string }>;
+    const filtered = docs.filter(
+      (d) =>
+        d.document_number &&
+        /^\d+$/.test(d.document_number.slice(todayPrefix.length))
+    );
 
     let next = 1;
     if (filtered.length > 0) {
-      const suffix = filtered[0].document_number.slice(`${prefix}-${dateStr}`.length);
+      const suffix = filtered[0].document_number.slice(todayPrefix.length);
       const last = parseInt(suffix, 10);
       next = (isNaN(last) ? 0 : last) + 1;
     }
-    return `${prefix}-${dateStr}${next.toString().padStart(3, '0')}`;
+    return `${todayPrefix}${next.toString().padStart(3, '0')}`;
   } catch (e) {
     console.error('Error generating document number:', e);
-    return `${prefix}-${dateStr}001`;
+    return `${todayPrefix}001`;
   }
 }
 
@@ -2307,6 +2308,18 @@ export const supabaseHelpers = {
 
     if (error) throw error;
     return data || [];
+  },
+
+  async getDocumentsByPrefix(prefix: string, type: 'quotation' | 'invoice' | 'delivery_note'): Promise<Pick<Document, 'document_number'>[]> {
+    const { data, error } = await supabase
+      .from('documents')
+      .select('document_number')
+      .eq('document_type', type)
+      .like('document_number', `${prefix}%`)
+      .order('document_number', { ascending: false })
+      .limit(10);
+    if (error) throw error;
+    return (data || []) as Pick<Document, 'document_number'>[];
   },
 
   /**
