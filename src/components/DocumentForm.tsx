@@ -44,6 +44,7 @@ const invoicePaymentOptions = [
   { value: 'cash' as const, label: 'Cash' },
   { value: 'card' as const, label: 'Card' },
   { value: 'both' as const, label: 'Card + Cash' },
+  { value: 'transfer' as const, label: 'Bank Transfer' },
 ];
 
 const deliveryPaymentOptions = [
