@@ -44,6 +44,7 @@ const invoicePaymentOptions = [
   { value: 'cash' as const, label: 'Cash' },
   { value: 'card' as const, label: 'Card' },
   { value: 'both' as const, label: 'Card + Cash' },
+  { value: 'transfer' as const, label: 'Bank Transfer' },
 ];
 
 const deliveryPaymentOptions = [
@@ -154,7 +155,7 @@ export default function DocumentForm({
         setPaymentMethod('cod');
       }
     } else if (documentType === 'invoice') {
-      if (paymentMethod === 'cod' || paymentMethod === 'transfer') {
+      if (paymentMethod === 'cod') {
         setPaymentMethod('cash');
       }
     } else if (paymentMethod === 'cod' || paymentMethod === 'transfer') {
@@ -220,6 +221,9 @@ export default function DocumentForm({
               cardAmount = existingTotal > 0 ? existingTotal / 2 : 0;
             }
             cashAmount = Math.max(existingTotal - cardAmount, 0);
+          } else if (existingPaymentMethod === 'transfer') {
+            cardAmount = 0;
+            cashAmount = 0;
           }
         } else if (existingDocument.document_type === 'delivery_note') {
           cardAmount = 0;
@@ -305,6 +309,9 @@ export default function DocumentForm({
               dupCardAmount = duplicateTotal > 0 ? duplicateTotal / 2 : 0;
             }
             dupCashAmount = Math.max(duplicateTotal - dupCardAmount, 0);
+          } else if (duplicatePaymentMethod === 'transfer') {
+            dupCardAmount = 0;
+            dupCashAmount = 0;
           }
         } else if (duplicateFrom.document_type === 'delivery_note') {
           dupCardAmount = 0;
@@ -500,7 +507,7 @@ export default function DocumentForm({
           return paymentMethod === 'transfer' ? 'transfer' : 'cod';
         }
         if (documentType === 'invoice') {
-          return paymentMethod === 'card' || paymentMethod === 'both' ? paymentMethod : 'cash';
+          return paymentMethod === 'card' || paymentMethod === 'both' || paymentMethod === 'transfer' ? paymentMethod : 'cash';
         }
         return paymentMethod === 'card' || paymentMethod === 'both' ? paymentMethod : 'cash';
       })();
