@@ -165,11 +165,11 @@ export default function DocumentView({
   const documentTitle = isPOSInStore
     ? 'POS IN-STORE RECEIPT'
     : isPOSDelivery
-    ? 'DELIVERY TAX RECEIPT'
+    ? 'DELIVERY TAX INVOICE'
     : document.document_type === 'quotation'
     ? 'QUOTATION'
     : document.document_type === 'invoice'
-    ? 'TAX RECEIPT'
+    ? 'TAX INVOICE'
     : 'DELIVERY NOTE';
   const originLabel = isPOSInStore ? 'POS In-Store Sale' : isPOSDelivery ? 'POS Delivery' : 'Dashboard';
 
