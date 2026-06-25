@@ -8,6 +8,11 @@
       "binding": "alhallaniyah",
       "id": "c85e379a81a3462caac5b2fe6b74d81d"
     }
+  ],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "9888ed46ba1a4a8e80d2fe6a7fd43ed6"
+    }
   ]
-  
 }

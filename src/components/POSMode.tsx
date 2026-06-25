@@ -511,7 +511,7 @@ export default function POSMode({ onBack, onOrderSaved, onOpenKitchen }: POSMode
         total: amt,
         notes: `${notesBase}.\nEstimated: ${estimated.toFixed(2)}\nPaid this receipt: ${amt.toFixed(2)}\nBalance before: ${balanceBefore.toFixed(2)}\nBalance after: ${balanceAfter.toFixed(2)}`,
         terms: '',
-        status: 'issued',
+        status: 'paid',
         origin: 'dashboard',
         payment_method: paymentMethodLS,
         payment_card_amount: 0,
